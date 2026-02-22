@@ -65,9 +65,8 @@
 		},
 		".cm-scroller": {
 			display: "flex",
+			flexDirection: "column",
 			overflow: "auto",
-			flexWrap: "wrap",
-			alignContent: "flex-start",
 			fontFamily:
 				'-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
 			fontSize: "15px",
@@ -275,7 +274,7 @@
 
 	.editor-container :global(.cm-title-wrapper) {
 		position: relative;
-		flex: 0 0 100%;
+		flex: 0 0 auto;
 		box-sizing: border-box;
 		max-width: var(--content-max-width);
 		width: 100%;
