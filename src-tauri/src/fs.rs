@@ -168,3 +168,71 @@ pub fn save_file(rel_path: String, contents: String) -> Result<(), String> {
     let path = resolve_path(&rel_path)?;
     atomic_write(&path, contents.as_bytes())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn sanitize_basic_cases() {
+        assert_eq!(sanitize_filename_impl(" Hello World.md "), "hello-world");
+        assert_eq!(sanitize_filename_impl("____"), "untitled");
+        assert_eq!(sanitize_filename_impl("My/Bad:Name?.md"), "mybadname");
+        assert_eq!(sanitize_filename_impl("  already-clean  "), "already-clean");
+        assert_eq!(sanitize_filename_impl("UPPER CASE"), "upper-case");
+    }
+
+    #[test]
+    fn sanitize_strips_trailing_dashes() {
+        assert_eq!(sanitize_filename_impl("hello---"), "hello");
+        assert_eq!(sanitize_filename_impl("---hello---"), "hello");
+    }
+
+    #[test]
+    fn sanitize_empty_becomes_untitled() {
+        assert_eq!(sanitize_filename_impl(""), "untitled");
+        assert_eq!(sanitize_filename_impl("   "), "untitled");
+        assert_eq!(sanitize_filename_impl("///"), "untitled");
+    }
+
+    #[test]
+    fn resolve_path_rejects_traversal() {
+        assert!(resolve_path("../evil.md").is_err());
+        assert!(resolve_path("foo/../../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn resolve_path_rejects_absolute() {
+        assert!(resolve_path("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn resolve_path_accepts_valid_relative() {
+        let result = resolve_path("notes/hello.md");
+        assert!(result.is_ok());
+        assert!(result.unwrap().ends_with("notes/hello.md"));
+    }
+
+    #[test]
+    fn atomic_write_creates_dirs_and_writes() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("sub").join("note.md");
+
+        atomic_write(&path, b"hello").unwrap();
+
+        let got = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(got, "hello");
+    }
+
+    #[test]
+    fn atomic_write_no_leftover_temp_on_success() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("note.md");
+
+        atomic_write(&path, b"content").unwrap();
+
+        let temp = dir.path().join(".note.md.pithy-tmp");
+        assert!(!temp.exists());
+    }
+}

@@ -148,6 +148,57 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 | Immediate save (flush) | Cmd+S |
 | Quick capture (global) | Configurable |
 
+## Testing
+
+### Running Tests
+
+```bash
+pnpm test          # Run all tests (TypeScript + Rust)
+pnpm test:ts       # TypeScript/Svelte tests only (Vitest)
+pnpm test:watch    # Vitest in watch mode
+pnpm test:rust     # Rust unit tests only (cargo test)
+```
+
+### Testing Stack
+
+| Layer | Framework | Environment |
+|---|---|---|
+| TypeScript/Svelte | **Vitest** | jsdom |
+| Component testing | **@testing-library/svelte** | jsdom |
+| Assertions (DOM) | **@testing-library/jest-dom** | — |
+| Rust | **cargo test** + `tempfile` | native |
+
+### Test File Conventions
+
+- **Co-locate tests** next to the source file: `autosave.ts` → `autosave.test.ts`.
+- **Rust tests** go in `#[cfg(test)] mod tests` at the bottom of the source file (e.g., `fs.rs`).
+- Test files match the glob `src/**/*.{test,spec}.{ts,js}`.
+
+### Mocking Tauri IPC
+
+Frontend code depends on Tauri's `invoke()` which is unavailable in jsdom. Two mocking strategies:
+
+1. **Mock the wrapper module** (`$lib/tauri/fs`) — preferred when testing logic that calls IPC (e.g., `AutoSaveController`):
+   ```ts
+   vi.mock("$lib/tauri/fs", () => ({
+     saveFile: vi.fn().mockResolvedValue(undefined),
+   }));
+   ```
+
+2. **Mock `@tauri-apps/api/core`** — use when testing the wrappers themselves:
+   ```ts
+   vi.mock("@tauri-apps/api/core", () => ({
+     invoke: vi.fn(),
+   }));
+   ```
+
+### Testing Patterns
+
+- **Fake timers** for debounce/timing logic (`vi.useFakeTimers()`, `vi.advanceTimersByTimeAsync()`).
+- **Rust filesystem tests** use `tempfile::tempdir()` for isolated temp directories — no real vault interaction.
+- **Private Rust functions** (e.g., `sanitize_filename_impl`, `resolve_path`, `atomic_write`) are testable via in-module `#[cfg(test)]` blocks.
+- Always run `pnpm test` before declaring work complete.
+
 ## What's Out of Scope for MVP
 
 Graph view, block references/transclusion, frontmatter parsing, PDF/media, export, plugin system, mobile, GUI settings, sidebar, folder tree, collaboration, E2E encrypted sync.
