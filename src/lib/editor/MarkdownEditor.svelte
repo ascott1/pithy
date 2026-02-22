@@ -67,10 +67,9 @@
 			display: "flex",
 			flexDirection: "column",
 			overflow: "auto",
-			fontFamily:
-				'-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
-			fontSize: "15px",
-			lineHeight: "1.7",
+			fontFamily: "var(--editor-font-family)",
+			fontSize: "var(--editor-font-size)",
+			lineHeight: "var(--editor-line-height)",
 		},
 		".cm-content": {
 			boxSizing: "border-box",

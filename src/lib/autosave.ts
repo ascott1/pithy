@@ -2,11 +2,14 @@ import { saveFile } from "$lib/tauri/fs";
 
 export type SaveState = "idle" | "debouncing" | "saving" | "error";
 
+export type SaveFn = (path: string, contents: string) => Promise<void>;
+
 export class AutoSaveController {
 	private path: string | null = null;
 	private doc = "";
 	private lastSavedDoc = "";
 	private debounceMs: number;
+	private saveFn: SaveFn;
 
 	private timer: ReturnType<typeof setTimeout> | null = null;
 	private saving = false;
@@ -18,8 +21,9 @@ export class AutoSaveController {
 	dirty = false;
 	onState?: (s: SaveState, dirty: boolean, err: string | null) => void;
 
-	constructor(debounceMs = 350) {
+	constructor(debounceMs = 350, saveFn: SaveFn = saveFile) {
 		this.debounceMs = debounceMs;
+		this.saveFn = saveFn;
 	}
 
 	private setState(s: SaveState, err: string | null = null) {
@@ -118,7 +122,7 @@ export class AutoSaveController {
 			this.setState("saving", null);
 
 			try {
-				await saveFile(pathSnapshot, docSnapshot);
+				await this.saveFn(pathSnapshot, docSnapshot);
 
 				if (this.generation === gen) {
 					this.lastSavedDoc = docSnapshot;

@@ -2570,6 +2570,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-opener",
  "tempfile",
+ "toml 0.8.2",
  "walkdir",
 ]
 

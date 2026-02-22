@@ -1,14 +1,10 @@
+use crate::config::AppState;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use walkdir::WalkDir;
 
-fn vault_dir() -> PathBuf {
-    let home = std::env::var("HOME").expect("HOME not set");
-    PathBuf::from(home).join("Documents").join("Pithy")
-}
-
-fn resolve_path(rel_path: &str) -> Result<PathBuf, String> {
+fn resolve_path(vault_dir: &Path, rel_path: &str) -> Result<PathBuf, String> {
     let rel = Path::new(rel_path);
 
     if rel.is_absolute() {
@@ -24,7 +20,7 @@ fn resolve_path(rel_path: &str) -> Result<PathBuf, String> {
         }
     }
 
-    Ok(vault_dir().join(rel))
+    Ok(vault_dir.join(rel))
 }
 
 fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
@@ -105,9 +101,14 @@ pub fn sanitize_filename(name: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn rename_file(old_rel_path: String, new_rel_path: String) -> Result<(), String> {
-    let old_path = resolve_path(&old_rel_path)?;
-    let new_path = resolve_path(&new_rel_path)?;
+pub fn rename_file(
+    old_rel_path: String,
+    new_rel_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let vault = &state.config.vault_dir;
+    let old_path = resolve_path(vault, &old_rel_path)?;
+    let new_path = resolve_path(vault, &new_rel_path)?;
 
     if !old_path.exists() {
         return Err("Source file does not exist".into());
@@ -125,8 +126,8 @@ pub fn rename_file(old_rel_path: String, new_rel_path: String) -> Result<(), Str
 }
 
 #[tauri::command]
-pub fn list_files() -> Result<Vec<String>, String> {
-    let vault = vault_dir();
+pub fn list_files(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    let vault = &state.config.vault_dir;
     fs::create_dir_all(&vault).map_err(|e| e.to_string())?;
 
     let mut files: Vec<String> = WalkDir::new(&vault)
@@ -158,14 +159,14 @@ pub fn list_files() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn read_file(rel_path: String) -> Result<String, String> {
-    let path = resolve_path(&rel_path)?;
+pub fn read_file(rel_path: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let path = resolve_path(&state.config.vault_dir, &rel_path)?;
     fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn save_file(rel_path: String, contents: String) -> Result<(), String> {
-    let path = resolve_path(&rel_path)?;
+pub fn save_file(rel_path: String, contents: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let path = resolve_path(&state.config.vault_dir, &rel_path)?;
     atomic_write(&path, contents.as_bytes())
 }
 
@@ -198,18 +199,21 @@ mod tests {
 
     #[test]
     fn resolve_path_rejects_traversal() {
-        assert!(resolve_path("../evil.md").is_err());
-        assert!(resolve_path("foo/../../etc/passwd").is_err());
+        let vault = PathBuf::from("/tmp/vault");
+        assert!(resolve_path(&vault, "../evil.md").is_err());
+        assert!(resolve_path(&vault, "foo/../../etc/passwd").is_err());
     }
 
     #[test]
     fn resolve_path_rejects_absolute() {
-        assert!(resolve_path("/etc/passwd").is_err());
+        let vault = PathBuf::from("/tmp/vault");
+        assert!(resolve_path(&vault, "/etc/passwd").is_err());
     }
 
     #[test]
     fn resolve_path_accepts_valid_relative() {
-        let result = resolve_path("notes/hello.md");
+        let vault = PathBuf::from("/tmp/vault");
+        let result = resolve_path(&vault, "notes/hello.md");
         assert!(result.is_ok());
         assert!(result.unwrap().ends_with("notes/hello.md"));
     }

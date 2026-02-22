@@ -27,6 +27,7 @@ pithy/
 │   │   ├── editor/
 │   │   │   └── MarkdownEditor.svelte  # CodeMirror 6 wrapper + inline title (injected into CM scroller)
 │   │   └── tauri/
+│   │       ├── config.ts    # Typed invoke wrappers for config commands
 │   │       └── fs.ts        # Typed invoke wrappers for Rust commands
 │   ├── routes/             # SvelteKit routes
 │   │   ├── +layout.ts      # SSR disabled (ssr = false, prerender = true)
@@ -36,6 +37,7 @@ pithy/
 │   ├── src/
 │   │   ├── main.rs         # Entry point — calls pithy_lib::run()
 │   │   ├── lib.rs          # Tauri builder, command registration
+│   │   ├── config.rs       # Config parsing, resolution, Tauri commands
 │   │   └── fs.rs           # Filesystem commands (list, read, save, rename, sanitize)
 │   ├── Cargo.toml          # Rust dependencies
 │   └── tauri.conf.json     # Tauri config (window size, app ID, build commands)
@@ -73,6 +75,11 @@ Keep the IPC surface small — well-defined Tauri commands.
 - `sanitize_filename(name) -> String` — deterministic sanitization (lowercase, spaces→dashes, strip illegal chars).
 
 All paths are relative to vault root. `resolve_path()` rejects `..`, absolute paths, and other traversal via `Path::components()` checking. Tauri 2 auto-converts camelCase JS args to snake_case Rust params.
+
+### Current Tauri Commands (config.rs)
+- `get_config_info() -> ConfigInfo` — returns resolved config snapshot (paths, editor settings, warnings). Called once on startup.
+- `read_config_file() -> String` — returns raw TOML contents for in-app editing.
+- `write_config_file(contents)` — atomic write of edited config TOML back to disk.
 
 ## Core Design Decisions
 
@@ -114,8 +121,20 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 
 ### Config Over GUI
 - All settings in a TOML config file (`~/.config/pithy/config.toml`). No settings panel.
-- Cmd+, opens the config file in the app itself.
-- Config is self-documenting with comments.
+- Cmd+, opens the config file in the app itself (reuses `MarkdownEditor` in "config" mode with a dedicated `configAutosave` instance).
+- Config is self-documenting with comments. TOML keys use kebab-case (e.g., `font-size`, `font-family`).
+- Config changes require app restart (MVP). The config bar shows a notice.
+- On first launch, `load_or_create()` writes a commented default template.
+- If config TOML is malformed, app falls back to defaults and shows a warning banner.
+
+### Config Architecture
+- **Structs pipeline:** `Config` (TOML parse) → `ResolvedConfig` (validated, held in `AppState`) → `ConfigInfo`/`EditorConfigInfo` (JSON to frontend).
+- **`Config`** (`config.rs`): serde struct matching the TOML shape. Has `vault: VaultConfig` and `editor: EditorConfig`. All fields have `#[serde(default)]` so partial configs work.
+- **`EditorConfig`**: uses `#[serde(rename_all = "kebab-case")]` for TOML keys. Embedded directly in `ResolvedConfig` (no field flattening).
+- **`EditorConfigInfo`**: separate struct with `#[serde(rename_all = "camelCase")]` for JSON serialization to the frontend. Maps from `EditorConfig` in `get_config_info`.
+- **`AppState`**: holds `Arc<ResolvedConfig>` + optional warning string. Managed as Tauri state.
+- **Frontend**: `getConfigInfo()` is called once in `onMount`. Editor settings are applied as CSS custom properties (`--editor-font-size`, `--editor-font-family`, `--editor-line-height`) on `document.documentElement`. CodeMirror theme reads these vars.
+- **Adding a new setting** requires 3 touch-points: `EditorConfig` + `EditorConfigInfo` (Rust), TS `EditorConfigInfo` interface, CSS var injection line. See `docs/adding-config-settings.md`.
 
 ### Search (Tantivy)
 - Full-text search via Tantivy (Rust).
