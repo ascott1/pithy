@@ -1,4 +1,5 @@
 use crate::config::AppState;
+use crate::search::{IndexOp, SearchState};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
@@ -105,6 +106,7 @@ pub fn rename_file(
     old_rel_path: String,
     new_rel_path: String,
     state: tauri::State<'_, AppState>,
+    search: tauri::State<'_, SearchState>,
 ) -> Result<(), String> {
     let vault = &state.config.vault_dir;
     let old_path = resolve_path(vault, &old_rel_path)?;
@@ -122,6 +124,8 @@ pub fn rename_file(
     }
 
     fs::rename(&old_path, &new_path).map_err(|e| e.to_string())?;
+    let _ = search.op_sender.send(IndexOp::Delete { rel_path: old_rel_path });
+    let _ = search.op_sender.send(IndexOp::Upsert { rel_path: new_rel_path });
     Ok(())
 }
 
@@ -165,9 +169,11 @@ pub fn read_file(rel_path: String, state: tauri::State<'_, AppState>) -> Result<
 }
 
 #[tauri::command]
-pub fn save_file(rel_path: String, contents: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub fn save_file(rel_path: String, contents: String, state: tauri::State<'_, AppState>, search: tauri::State<'_, SearchState>) -> Result<(), String> {
     let path = resolve_path(&state.config.vault_dir, &rel_path)?;
-    atomic_write(&path, contents.as_bytes())
+    atomic_write(&path, contents.as_bytes())?;
+    let _ = search.op_sender.send(IndexOp::Upsert { rel_path });
+    Ok(())
 }
 
 #[cfg(test)]

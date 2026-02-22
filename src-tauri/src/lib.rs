@@ -1,5 +1,6 @@
 mod config;
 mod fs;
+mod search;
 
 use config::AppState;
 use std::sync::Arc;
@@ -13,10 +14,15 @@ pub fn run() {
         .setup(|app| {
             let (cfg, warning) =
                 config::load_or_create().map_err(|e| e.to_string())?;
+            let vault_dir = cfg.vault_dir.clone();
             app.manage(AppState {
                 config: Arc::new(cfg),
                 config_warning: warning,
             });
+
+            let search_state = search::init_search(vault_dir)
+                .map_err(|e| e.to_string())?;
+            app.manage(search_state);
 
             let settings = MenuItemBuilder::new("Settings...")
                 .id("settings")
@@ -70,6 +76,9 @@ pub fn run() {
             config::get_config_info,
             config::read_config_file,
             config::write_config_file,
+            search::search_query,
+            search::search_status,
+            search::search_rebuild,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
