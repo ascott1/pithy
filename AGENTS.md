@@ -10,7 +10,7 @@ Pithy is a fast, focused markdown notes app for macOS desktop. The core philosop
 |---|---|---|
 | Desktop framework | **Tauri 2** | Rust backend, native webview. No Electron. |
 | Frontend framework | **Svelte 5** | Uses runes (`$state`, `$derived`, etc.). SvelteKit with `adapter-static` for SSG. |
-| Editor | **CodeMirror 6** | Integrated. Markdown highlighting, line wrapping, Cmd+S save. |
+| Editor | **CodeMirror 6** | Integrated. Markdown highlighting, line wrapping, autosave. |
 | Search | **Tantivy** | Not yet integrated — Rust full-text search library. |
 | Language (UI) | **TypeScript** | Strict mode enabled. |
 | Language (backend) | **Rust** | Via Tauri commands. |
@@ -23,6 +23,7 @@ Pithy is a fast, focused markdown notes app for macOS desktop. The core philosop
 pithy/
 ├── src/                    # Frontend (Svelte/TypeScript)
 │   ├── lib/
+│   │   ├── autosave.ts      # AutoSaveController — debounced single-writer autosave
 │   │   ├── editor/
 │   │   │   └── MarkdownEditor.svelte  # CodeMirror 6 wrapper + inline title (injected into CM scroller)
 │   │   └── tauri/
@@ -60,7 +61,7 @@ pnpm check         # TypeScript/Svelte type checking
 
 Rust (Tauri commands) handles: file I/O, atomic writes, file watching (`notify` crate), search indexing (Tantivy), filename sanitization, global hotkeys.
 
-TypeScript/Svelte handles: UI rendering, editor state, CodeMirror extensions, keybinding dispatch, theme application.
+TypeScript/Svelte handles: UI rendering, editor state, CodeMirror extensions, keybinding dispatch, theme application, autosave scheduling/debouncing.
 
 Keep the IPC surface small — well-defined Tauri commands.
 
@@ -102,8 +103,10 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 - Following a link to a nonexistent note creates it.
 - Disambiguation popup when multiple files share a stem (subdirectories).
 
-### Storage
+### Storage & Autosave
 - Plain `.md` files in a vault directory (default: `~/Documents/Pithy`).
+- **Autosave:** changes auto-persist ~350ms after typing stops via `AutoSaveController`. No manual save needed — Apple Notes-style "user never thinks about saving". Cmd+S is retained as an immediate flush for muscle memory.
+- **AutoSaveController** (`src/lib/autosave.ts`): debounced single-writer with waiter pattern. Uses a while-loop save cycle (not recursive promises) to coalesce rapid changes. Generation counter invalidates stale saves on file switch. `flushAndWait()` returns a promise that resolves only after the full save cycle drains. Always flush before file switch or rename.
 - **Atomic writes:** write to temp file, fsync, rename, fsync parent dir. Temp file cleaned up on failure.
 - File watcher via `notify` crate for external changes.
 - Ignore dotfiles and sync artifacts (`.git/`, `.DS_Store`, `*.icloud`, `*.conflict`).
@@ -142,6 +145,7 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 | Full-text search | Cmd+Shift+F |
 | Daily note | Cmd+D |
 | Open config | Cmd+, |
+| Immediate save (flush) | Cmd+S |
 | Quick capture (global) | Configurable |
 
 ## What's Out of Scope for MVP
@@ -160,3 +164,4 @@ Graph view, block references/transclusion, frontmatter parsing, PDF/media, expor
 - **Async race guards** — use sequence counters (`openSeq`, `renameSeq`) for any async operation that sets state; check the counter after `await` to discard stale results.
 - **Editor remounting** — wrap `MarkdownEditor` in `{#key currentPath}` so each file gets a fresh CodeMirror instance with clean undo history.
 - **Config identifier:** `com.writepithy.app`
+- **Autosave flush-before-switch** — always `await autosave.flushAndWait()` before opening a different file or renaming. After rename, call `autosave.setOpenedFile(newPath, doc)` to reset the baseline.

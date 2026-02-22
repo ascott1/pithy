@@ -19,6 +19,8 @@
 		title?: string;
 		titleDisabled?: boolean;
 		dirty?: boolean;
+		saving?: boolean;
+		saveError?: string | null;
 		renameError?: string | null;
 		onchange?: (doc: string) => void;
 		onsave?: () => void;
@@ -33,6 +35,8 @@
 		title = "",
 		titleDisabled = false,
 		dirty = false,
+		saving = false,
+		saveError = null,
 		renameError = null,
 		onchange,
 		onsave,
@@ -48,6 +52,7 @@
 	let titleInputEl: HTMLInputElement | null = null;
 	let dirtyEl: HTMLSpanElement | null = null;
 	let errorEl: HTMLDivElement | null = null;
+	let saveErrorEl: HTMLDivElement | null = null;
 
 	const theme = EditorView.theme({
 		"&": {
@@ -170,21 +175,29 @@
 			indicator.textContent = "●";
 			indicator.title = "Unsaved changes";
 			indicator.style.display = dirty ? "" : "none";
+			if (saving) indicator.classList.add("cm-saving");
 
 			wrapper.appendChild(input);
 			wrapper.appendChild(indicator);
+
+			const saveErrDiv = document.createElement("div");
+			saveErrDiv.className = "cm-title-error cm-save-error";
+			saveErrDiv.style.display = saveError ? "" : "none";
+			saveErrDiv.textContent = saveError ? `Save failed: ${saveError}` : "";
 
 			const errDiv = document.createElement("div");
 			errDiv.className = "cm-title-error";
 			errDiv.style.display = renameError ? "" : "none";
 			errDiv.textContent = renameError ?? "";
 
-			scroller.insertBefore(errDiv, content);
+			scroller.insertBefore(saveErrDiv, content);
+			scroller.insertBefore(errDiv, saveErrDiv);
 			scroller.insertBefore(wrapper, errDiv);
 
 			titleInputEl = input;
 			dirtyEl = indicator;
 			errorEl = errDiv;
+			saveErrorEl = saveErrDiv;
 		}
 
 		onready?.({
@@ -196,7 +209,7 @@
 		});
 
 		return () => {
-			titleInputEl = dirtyEl = errorEl = null;
+			titleInputEl = dirtyEl = errorEl = saveErrorEl = null;
 			view?.destroy();
 		};
 	});
@@ -216,6 +229,15 @@
 	$effect(() => {
 		if (dirtyEl) {
 			dirtyEl.style.display = dirty ? "" : "none";
+			dirtyEl.classList.toggle("cm-saving", saving);
+			dirtyEl.title = saving ? "Saving…" : "Unsaved changes";
+		}
+	});
+
+	$effect(() => {
+		if (saveErrorEl) {
+			saveErrorEl.style.display = saveError ? "" : "none";
+			saveErrorEl.textContent = saveError ? `Save failed: ${saveError}` : "";
 		}
 	});
 
@@ -291,6 +313,16 @@
 		top: 2.5rem;
 		font-size: 0.5rem;
 		color: var(--dirty-color);
+		transition: opacity 0.15s;
+	}
+
+	.editor-container :global(.cm-dirty-indicator.cm-saving) {
+		animation: pulse 1s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.3; }
 	}
 
 	.editor-container :global(.cm-title-error) {

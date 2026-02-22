@@ -4,15 +4,25 @@
 	import {
 		listFiles,
 		readFile,
-		saveFile,
 		renameFile,
 		sanitizeFilename,
 	} from "$lib/tauri/fs";
+	import { AutoSaveController, type SaveState } from "$lib/autosave";
 
 	let currentPath = $state<string | null>(null);
 	let doc = $state("");
-	let lastSavedDoc = $state("");
-	let dirty = $derived(currentPath !== null && doc !== lastSavedDoc);
+
+	let saveState = $state<SaveState>("idle");
+	let saveDirty = $state(false);
+	let saveError = $state<string | null>(null);
+	let saving = $derived(saveState === "saving");
+
+	const autosave = new AutoSaveController(350);
+	autosave.onState = (s, dirty, err) => {
+		saveState = s;
+		saveDirty = dirty;
+		saveError = err;
+	};
 
 	let titleDraft = $state("");
 	let isRenaming = $state(false);
@@ -45,6 +55,8 @@
 	}
 
 	async function openFile(path: string) {
+		await autosave.flushAndWait();
+
 		const seq = ++openSeq;
 		currentPath = path;
 		titleDraft = displayName(path);
@@ -54,17 +66,22 @@
 		if (seq !== openSeq) return;
 
 		doc = contents;
-		lastSavedDoc = contents;
+		autosave.setOpenedFile(path, contents);
+	}
+
+	function onDocChange(d: string) {
+		doc = d;
+		autosave.setDoc(d);
 	}
 
 	async function save() {
-		if (currentPath === null || isRenaming) return;
-		await saveFile(currentPath, doc);
-		lastSavedDoc = doc;
+		await autosave.flushNow();
 	}
 
 	async function commitTitleRename() {
 		if (!currentPath || isRenaming) return;
+
+		await autosave.flushAndWait();
 
 		const seq = ++renameSeq;
 		const oldPath = currentPath;
@@ -88,6 +105,7 @@
 
 			currentPath = newPath;
 			titleDraft = displayName(newPath);
+			autosave.setOpenedFile(newPath, doc);
 		} catch (e) {
 			renameError = String(e);
 			titleDraft = displayName(oldPath);
@@ -118,9 +136,11 @@
 					{doc}
 					title={titleDraft}
 					titleDisabled={isRenaming}
-					{dirty}
+					dirty={saveDirty}
+					{saving}
+					{saveError}
 					{renameError}
-					onchange={(d) => (doc = d)}
+					onchange={onDocChange}
 					onsave={save}
 					ontitlechange={(v) => (titleDraft = v)}
 					ontitleblur={() => void commitTitleRename()}
