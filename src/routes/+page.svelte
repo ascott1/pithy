@@ -203,7 +203,10 @@
 
 <div class="app">
 	{#if configWarning}
-		<div class="warning-banner">{configWarning}</div>
+		<div class="warning-banner">
+			<span class="warning-text">{configWarning}</span>
+			<button class="warning-dismiss" onclick={() => (configWarning = null)} aria-label="Dismiss">✕</button>
+		</div>
 	{/if}
 
 	{#if mode === "config"}
@@ -307,11 +310,37 @@
 	}
 
 	.warning-banner {
-		padding: 6px 16px;
-		background: var(--dirty-color);
-		color: #1a1a1a;
-		font-size: 0.8125rem;
-		text-align: center;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 8px 16px 0;
+		padding: 6px 10px;
+		background: color-mix(in srgb, var(--dirty-color) 15%, transparent);
+		border: 1px solid color-mix(in srgb, var(--dirty-color) 40%, transparent);
+		border-radius: 6px;
+		font-size: 0.75rem;
+		color: var(--editor-text);
+	}
+
+	.warning-text {
+		flex: 1;
+		opacity: 0.8;
+	}
+
+	.warning-dismiss {
+		flex-shrink: 0;
+		background: none;
+		border: none;
+		color: var(--editor-text);
+		opacity: 0.4;
+		cursor: pointer;
+		font-size: 0.75rem;
+		padding: 0 2px;
+		line-height: 1;
+	}
+
+	.warning-dismiss:hover {
+		opacity: 0.8;
 	}
 
 	.config-bar {
