@@ -24,7 +24,7 @@ pithy/
 ├── src/                    # Frontend (Svelte/TypeScript)
 │   ├── lib/
 │   │   ├── editor/
-│   │   │   └── MarkdownEditor.svelte  # CodeMirror 6 wrapper component
+│   │   │   └── MarkdownEditor.svelte  # CodeMirror 6 wrapper + inline title (injected into CM scroller)
 │   │   └── tauri/
 │   │       └── fs.ts        # Typed invoke wrappers for Rust commands
 │   ├── routes/             # SvelteKit routes
@@ -77,7 +77,7 @@ All paths are relative to vault root. `resolve_path()` rejects `..`, absolute pa
 
 ### Title Is the Filename
 - No frontmatter, no title field in file contents. The filename stem IS the note's identity.
-- The editor shows an **editable title `<input>`** above the CodeMirror buffer (not part of the CM buffer). Arrow keys navigate between title and editor as if they're one surface.
+- The editor shows an **editable title `<input>`** injected into CM6's `.cm-scroller` (Obsidian-style inline title). It scrolls with the document. Arrow keys navigate between title and editor as if they're one surface.
 - Display: dashes/underscores → spaces (`project-kickoff.md` → "project kickoff"). Display-only; file on disk unchanged.
 - Editing the title triggers a file rename on blur/Enter. Escape reverts. Rename fails gracefully if destination exists.
 - If wikilinks reference the old name, show a confirmation dialog for bulk rewrite (not yet implemented).

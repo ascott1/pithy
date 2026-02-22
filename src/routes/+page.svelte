@@ -17,8 +17,7 @@
 	let titleDraft = $state("");
 	let isRenaming = $state(false);
 	let renameError = $state<string | null>(null);
-	let titleInput = $state<HTMLInputElement | null>(null);
-	let editorApi: { focus: () => void } | null = null;
+	let editorApi: { focus: () => void; focusTitle: () => void } | null = null;
 
 	let openSeq = 0;
 	let renameSeq = 0;
@@ -109,48 +108,23 @@
 			(ev.target as HTMLInputElement).blur();
 		}
 	}
-
-	function focusTitle() {
-		titleInput?.focus();
-		titleInput?.setSelectionRange(
-			titleInput.value.length,
-			titleInput.value.length,
-		);
-	}
 </script>
 
 <div class="app">
 	{#if currentPath}
 		<div class="editor-surface">
-			<div class="title-area">
-				<input
-					bind:this={titleInput}
-					class="note-title"
-					value={titleDraft}
-					disabled={isRenaming}
-					spellcheck={false}
-					placeholder="Untitled"
-					oninput={(e) =>
-						(titleDraft = (e.target as HTMLInputElement).value)}
-					onkeydown={onTitleKeydown}
-					onblur={() => void commitTitleRename()}
-				/>
-				{#if dirty}
-					<span class="dirty-indicator" title="Unsaved changes">●</span
-					>
-				{/if}
-			</div>
-
-			{#if renameError}
-				<div class="title-error">{renameError}</div>
-			{/if}
-
 			{#key currentPath}
 				<MarkdownEditor
 					{doc}
+					title={titleDraft}
+					titleDisabled={isRenaming}
+					{dirty}
+					{renameError}
 					onchange={(d) => (doc = d)}
 					onsave={save}
-					onfocusup={focusTitle}
+					ontitlechange={(v) => (titleDraft = v)}
+					ontitleblur={() => void commitTitleRename()}
+					ontitlekeydown={onTitleKeydown}
 					onready={(api) => (editorApi = api)}
 				/>
 			{/key}
@@ -167,6 +141,7 @@
 		--editor-cursor: #333;
 		--editor-selection: #d7e4f2;
 		--dirty-color: #f59e0b;
+		--content-max-width: 680px;
 	}
 
 	@media (prefers-color-scheme: dark) {
@@ -195,55 +170,6 @@
 		flex-direction: column;
 		min-height: 0;
 		background: var(--editor-bg);
-	}
-
-	.title-area {
-		position: relative;
-		flex-shrink: 0;
-		max-width: 65ch;
-		width: 100%;
-		margin: 0 auto;
-		padding: 2rem 2rem 0;
-	}
-
-	.note-title {
-		display: block;
-		width: 100%;
-		font: inherit;
-		font-size: 1.8rem;
-		font-weight: 700;
-		line-height: 1.2;
-		color: var(--editor-text);
-		background: transparent;
-		border: none;
-		outline: none;
-		padding: 0;
-		padding-bottom: 0.5rem;
-	}
-
-	.note-title::placeholder {
-		color: var(--editor-text);
-		opacity: 0.25;
-	}
-
-	.note-title:disabled {
-		opacity: 0.6;
-	}
-
-	.dirty-indicator {
-		position: absolute;
-		right: 2rem;
-		top: 2.5rem;
-		font-size: 0.5rem;
-		color: var(--dirty-color);
-	}
-
-	.title-error {
-		max-width: 65ch;
-		margin: 0 auto;
-		padding: 0 2rem 0.5rem;
-		font-size: 0.8rem;
-		color: #d14343;
 	}
 
 	.empty {
