@@ -14,6 +14,10 @@
 		getConfigInfo,
 	} from "$lib/tauri/config";
 	import { AutoSaveController, type SaveState } from "$lib/autosave";
+	import { StreamLanguage } from "@codemirror/language";
+	import { toml } from "@codemirror/legacy-modes/mode/toml";
+
+	const tomlLang = StreamLanguage.define(toml);
 
 	let mode = $state<"vault" | "config">("vault");
 	let currentPath = $state<string | null>(null);
@@ -211,6 +215,7 @@
 			{#key "config"}
 				<MarkdownEditor
 					{doc}
+					lang={tomlLang}
 					title="config"
 					titleDisabled={true}
 					dirty={saveDirty}
@@ -314,7 +319,6 @@
 		align-items: center;
 		gap: 12px;
 		padding: 6px 16px;
-		border-bottom: 1px solid color-mix(in srgb, var(--editor-text) 10%, transparent);
 	}
 
 	.config-back {

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { EditorView, keymap } from "@codemirror/view";
-	import { EditorState } from "@codemirror/state";
+	import { EditorState, type Extension } from "@codemirror/state";
 	import {
 		defaultKeymap,
 		history,
@@ -16,6 +16,7 @@
 
 	interface Props {
 		doc: string;
+		lang?: Extension;
 		title?: string;
 		titleDisabled?: boolean;
 		dirty?: boolean;
@@ -32,6 +33,7 @@
 
 	let {
 		doc,
+		lang,
 		title = "",
 		titleDisabled = false,
 		dirty = false,
@@ -112,7 +114,7 @@
 			extensions: [
 				EditorView.lineWrapping,
 				history(),
-				markdown({ codeLanguages: languages }),
+				lang ?? markdown({ codeLanguages: languages }),
 				syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 				keymap.of([
 					...defaultKeymap,
@@ -302,7 +304,7 @@
 	}
 
 	.editor-container :global(.cm-note-title:disabled) {
-		opacity: 0.6;
+		opacity: 1;
 	}
 
 	.editor-container :global(.cm-dirty-indicator) {
