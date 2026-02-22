@@ -2,9 +2,7 @@
 
 ## What Is This?
 
-Pithy is a fast, focused markdown notes app for macOS desktop. The core philosophy: **get out of the way and let users write**. Think Ghostty's ethos applied to note-taking — speed, simplicity, no plugin sprawl.
-
-**Target users:** Developers, writers, and technical professionals who think in markdown, want plain files on disk, and are frustrated by the weight of tools like Obsidian.
+Pithy is a fast, focused markdown notes app for macOS desktop. The core philosophy: **get out of the way and let users write**. Speed, simplicity, no plugin sprawl.
 
 ## Tech Stack
 
@@ -12,7 +10,7 @@ Pithy is a fast, focused markdown notes app for macOS desktop. The core philosop
 |---|---|---|
 | Desktop framework | **Tauri 2** | Rust backend, native webview. No Electron. |
 | Frontend framework | **Svelte 5** | Uses runes (`$state`, `$derived`, etc.). SvelteKit with `adapter-static` for SSG. |
-| Editor | **CodeMirror 6** | Not yet integrated — will be added. |
+| Editor | **CodeMirror 6** | Integrated. Markdown highlighting, line wrapping, Cmd+S save. |
 | Search | **Tantivy** | Not yet integrated — Rust full-text search library. |
 | Language (UI) | **TypeScript** | Strict mode enabled. |
 | Language (backend) | **Rust** | Via Tauri commands. |
@@ -24,14 +22,20 @@ Pithy is a fast, focused markdown notes app for macOS desktop. The core philosop
 ```
 pithy/
 ├── src/                    # Frontend (Svelte/TypeScript)
+│   ├── lib/
+│   │   ├── editor/
+│   │   │   └── MarkdownEditor.svelte  # CodeMirror 6 wrapper component
+│   │   └── tauri/
+│   │       └── fs.ts        # Typed invoke wrappers for Rust commands
 │   ├── routes/             # SvelteKit routes
 │   │   ├── +layout.ts      # SSR disabled (ssr = false, prerender = true)
-│   │   └── +page.svelte    # Main page (currently Tauri boilerplate)
+│   │   └── +page.svelte    # Main page — title + editor surface
 │   └── app.html            # HTML shell
 ├── src-tauri/              # Rust backend
 │   ├── src/
 │   │   ├── main.rs         # Entry point — calls pithy_lib::run()
-│   │   └── lib.rs          # Tauri builder, commands defined here
+│   │   ├── lib.rs          # Tauri builder, command registration
+│   │   └── fs.rs           # Filesystem commands (list, read, save, rename, sanitize)
 │   ├── Cargo.toml          # Rust dependencies
 │   └── tauri.conf.json     # Tauri config (window size, app ID, build commands)
 ├── static/                 # Static assets served at /
@@ -40,10 +44,6 @@ pithy/
 ├── vite.config.js          # Vite config (Tauri dev server settings)
 └── tsconfig.json           # TypeScript config (strict, bundler resolution)
 ```
-
-## Current State
-
-The project is a fresh Tauri 2 + SvelteKit + Svelte 5 scaffold. The boilerplate "greet" command and demo UI are still in place. No application logic has been implemented yet.
 
 ## Running the App
 
@@ -62,28 +62,37 @@ Rust (Tauri commands) handles: file I/O, atomic writes, file watching (`notify` 
 
 TypeScript/Svelte handles: UI rendering, editor state, CodeMirror extensions, keybinding dispatch, theme application.
 
-Keep the IPC surface small — well-defined Tauri commands, not a chatty bridge.
+Keep the IPC surface small — well-defined Tauri commands.
+
+### Current Tauri Commands (fs.rs)
+- `list_files() -> Vec<String>` — walks vault, returns relative `.md` paths, seeds `welcome.md` on empty vault.
+- `read_file(rel_path) -> String` — reads file contents.
+- `save_file(rel_path, contents)` — atomic write (temp → fsync → rename → fsync dir).
+- `rename_file(old_rel_path, new_rel_path)` — renames, fails if destination exists.
+- `sanitize_filename(name) -> String` — deterministic sanitization (lowercase, spaces→dashes, strip illegal chars).
+
+All paths are relative to vault root. `resolve_path()` rejects `..`, absolute paths, and other traversal via `Path::components()` checking. Tauri 2 auto-converts camelCase JS args to snake_case Rust params.
 
 ## Core Design Decisions
 
 ### Title Is the Filename
 - No frontmatter, no title field in file contents. The filename stem IS the note's identity.
-- The editor shows an **editable title block** above the CodeMirror buffer (separate Svelte component, not part of the CM buffer).
+- The editor shows an **editable title `<input>`** above the CodeMirror buffer (not part of the CM buffer). Arrow keys navigate between title and editor as if they're one surface.
 - Display: dashes/underscores → spaces (`project-kickoff.md` → "project kickoff"). Display-only; file on disk unchanged.
-- Editing the title triggers a file rename. If wikilinks reference the old name, show a confirmation dialog for bulk rewrite.
+- Editing the title triggers a file rename on blur/Enter. Escape reverts. Rename fails gracefully if destination exists.
+- If wikilinks reference the old name, show a confirmation dialog for bulk rewrite (not yet implemented).
 
 ### Filename Sanitization
 A single deterministic function (defined in Rust, exposed via Tauri command) used everywhere: spaces → dashes, strip illegal characters (`/ \ : * ? " < > |`), lowercase everything.
 
 ### Inline Rendering (Not WYSIWYG)
-The editor uses CodeMirror decorations to render markdown inline (bold appears bold, headers resize, links clickable) while raw markdown is accessible on cursor focus. This is the Obsidian/HyperMD model, not Typora-style.
+The editor uses CodeMirror decorations to render markdown inline (bold appears bold, headers resize, links clickable) while raw markdown is accessible on cursor focus.
 
 **MVP inline rendering:** headers, bold, italic, links, inline code, code blocks, blockquotes, horizontal rules.
 **Deferred:** tables, footnotes, math blocks, embedded images.
 
 ### Navigation: Cmd+K Is Everything
 - Cmd+K is the **unified** quick switcher for navigation AND creation.
-- No Cmd+N. If the typed name doesn't match, a "Create" option appears.
 - Default state (before typing) shows recent files.
 - No sidebar in MVP.
 
@@ -94,8 +103,8 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 - Disambiguation popup when multiple files share a stem (subdirectories).
 
 ### Storage
-- Plain `.md` files in a user-configured vault directory.
-- **Atomic writes:** write to temp file, then rename. Never risk partial writes.
+- Plain `.md` files in a vault directory (default: `~/Documents/Pithy`).
+- **Atomic writes:** write to temp file, fsync, rename, fsync parent dir. Temp file cleaned up on failure.
 - File watcher via `notify` crate for external changes.
 - Ignore dotfiles and sync artifacts (`.git/`, `.DS_Store`, `*.icloud`, `*.conflict`).
 - Sync is the user's responsibility (iCloud, Dropbox, Git).
@@ -139,14 +148,6 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 
 Graph view, block references/transclusion, frontmatter parsing, PDF/media, export, plugin system, mobile, GUI settings, sidebar, folder tree, collaboration, E2E encrypted sync.
 
-## Milestone Phases
-
-1. **Foundation (Phase 1):** Tauri scaffold, CodeMirror integration, file open/save with atomic writes, vault config, config file loading, title block display.
-2. **Core Editing (Phase 2):** Inline rendering, title editing + rename, wikilink autocomplete, Vim mode, spellcheck.
-3. **Navigation & Search (Phase 3):** Tantivy index, Cmd+K switcher, full-text search UI, tag indexing, recent files.
-4. **Linking & Capture (Phase 4):** Wikilink follow/create, rename with link-rewrite, backlinks panel, daily notes, global capture window.
-5. **Polish & Ship (Phase 5):** Themes (4 built-in), perf benchmarks, macOS polish, docs, packaging (DMG/Homebrew).
-
 ## Conventions to Follow
 
 - **Svelte 5 runes** — use `$state`, `$derived`, `$effect`, not legacy `let` reactivity.
@@ -155,4 +156,7 @@ Graph view, block references/transclusion, frontmatter parsing, PDF/media, expor
 - **Atomic file writes** — always write-to-temp-then-rename for any file mutation.
 - **macOS-first** — follow platform conventions (Cmd shortcuts, system fonts, accent colors). Linux/Windows deferred.
 - **No unnecessary abstractions** — build what's needed now. No plugin architecture, no extension points, no premature generalization.
+- **CSS variables** — define on `:global(:root)` (not scoped `:root`) so they reach CodeMirror's shadow styles. Use `prefers-color-scheme: dark` media query for dark mode.
+- **Async race guards** — use sequence counters (`openSeq`, `renameSeq`) for any async operation that sets state; check the counter after `await` to discard stale results.
+- **Editor remounting** — wrap `MarkdownEditor` in `{#key currentPath}` so each file gets a fresh CodeMirror instance with clean undo history.
 - **Config identifier:** `com.writepithy.app`
