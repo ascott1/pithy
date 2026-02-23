@@ -25,3 +25,7 @@ export function searchStatus(): Promise<string> {
 export function searchRebuild(): Promise<void> {
 	return invoke<void>("search_rebuild");
 }
+
+export function listTags(): Promise<string[]> {
+	return invoke<string[]>("list_tags");
+}

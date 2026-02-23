@@ -79,6 +79,7 @@ pub fn run() {
             search::search_query,
             search::search_status,
             search::search_rebuild,
+            search::list_tags,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

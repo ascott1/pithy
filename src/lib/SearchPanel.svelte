@@ -2,15 +2,17 @@
 	import { onMount } from "svelte";
 	import { searchQuery, searchStatus, searchRebuild } from "$lib/tauri/search";
 	import type { SearchHit } from "$lib/tauri/search";
+	import { cleanSnippet } from "$lib/snippets";
 
 	interface Props {
+		initialQuery?: string;
 		onselect: (path: string) => void;
 		onclose: () => void;
 	}
 
-	let { onselect, onclose }: Props = $props();
+	let { initialQuery = "", onselect, onclose }: Props = $props();
 
-	let query = $state("");
+	let query = $state(initialQuery);
 	let hits = $state<SearchHit[]>([]);
 	let status = $state<string>("ready");
 	let isSearching = $state(false);
@@ -22,6 +24,9 @@
 	onMount(() => {
 		inputEl?.focus();
 		void checkStatus();
+		if (query.trim()) {
+			void doSearch(query.trim());
+		}
 		return () => {
 			if (debounceTimer) clearTimeout(debounceTimer);
 		};
@@ -156,7 +161,7 @@
 							{/if}
 						</div>
 						{#if hit.snippet}
-							<div class="hit-snippet">{@html hit.snippet}</div>
+							<div class="hit-snippet">{@html cleanSnippet(hit.snippet)}</div>
 						{/if}
 					</button>
 				{/each}

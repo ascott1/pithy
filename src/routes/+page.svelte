@@ -52,6 +52,7 @@
 
 	let showSwitcher = $state(false);
 	let showSearch = $state(false);
+	let searchInitialQuery = $state("");
 
 	interface FileEntry {
 		path: string;
@@ -109,6 +110,7 @@
 		} else if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "f") {
 			e.preventDefault();
 			showSwitcher = false;
+			searchInitialQuery = "";
 			showSearch = !showSearch;
 		}
 	}
@@ -342,12 +344,18 @@
 		recents={recentPaths}
 		onselect={(path) => void openNote(path)}
 		oncreate={(name) => void createNote(name)}
+		onsearch={(q) => {
+			showSwitcher = false;
+			searchInitialQuery = q;
+			showSearch = true;
+		}}
 		onclose={() => (showSwitcher = false)}
 	/>
 {/if}
 
 {#if showSearch}
 	<SearchPanel
+		initialQuery={searchInitialQuery}
 		onselect={(path) => void openNote(path)}
 		onclose={() => (showSearch = false)}
 	/>

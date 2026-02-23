@@ -13,6 +13,19 @@
 		syntaxHighlighting,
 		defaultHighlightStyle,
 	} from "@codemirror/language";
+	import {
+		search,
+		searchKeymap,
+		SearchQuery,
+		getSearchQuery,
+		setSearchQuery,
+		findNext,
+		findPrevious,
+		replaceNext,
+		replaceAll,
+		closeSearchPanel,
+	} from "@codemirror/search";
+	import type { Panel } from "@codemirror/view";
 	import { inlineRendering } from "$lib/editor/inlineRendering";
 
 	interface Props {
@@ -109,6 +122,228 @@
 		}
 	}
 
+	function createSearchPanel(view: EditorView): Panel {
+		const dom = document.createElement("div");
+		dom.className = "cm-search-bar";
+
+		// State
+		let caseSensitive = false;
+		let wholeWord = false;
+		let regexp = false;
+		let replaceVisible = false;
+
+		// -- Replace toggle arrow --
+		const replaceToggle = document.createElement("button");
+		replaceToggle.className = "cm-search-bar-toggle-replace";
+		replaceToggle.textContent = "\u25B6"; // ▶
+		replaceToggle.title = "Toggle replace";
+		replaceToggle.addEventListener("click", () => {
+			replaceVisible = !replaceVisible;
+			replaceToggle.textContent = replaceVisible ? "\u25BC" : "\u25B6"; // ▼ or ▶
+			replaceRow.style.display = replaceVisible ? "" : "none";
+			if (replaceVisible) replaceInput.focus();
+		});
+
+		// -- Search row --
+		const searchRow = document.createElement("div");
+		searchRow.className = "cm-search-bar-row";
+
+		const searchInput = document.createElement("input");
+		searchInput.className = "cm-search-bar-input";
+		searchInput.type = "text";
+		searchInput.placeholder = "Find\u2026";
+		searchInput.setAttribute("main-field", "true");
+
+		function dispatchQuery() {
+			const q = new SearchQuery({
+				search: searchInput.value,
+				caseSensitive,
+				wholeWord,
+				regexp,
+				replace: replaceInput.value,
+			});
+			view.dispatch({ effects: setSearchQuery.of(q) });
+		}
+
+		searchInput.addEventListener("input", dispatchQuery);
+		searchInput.addEventListener("keydown", (e) => {
+			if (e.key === "Enter") {
+				e.preventDefault();
+				if (e.shiftKey) findPrevious(view);
+				else findNext(view);
+			}
+			if (e.key === "Escape") {
+				e.preventDefault();
+				closeSearchPanel(view);
+				view.focus();
+			}
+		});
+
+		// -- Toggle buttons --
+		function makeToggle(label: string, title: string, getter: () => boolean, setter: (v: boolean) => void) {
+			const btn = document.createElement("button");
+			btn.className = "cm-search-bar-btn cm-search-bar-toggle";
+			btn.textContent = label;
+			btn.title = title;
+			btn.addEventListener("click", () => {
+				setter(!getter());
+				btn.classList.toggle("active", getter());
+				dispatchQuery();
+			});
+			return btn;
+		}
+
+		const caseBtn = makeToggle("Aa", "Case sensitive", () => caseSensitive, (v) => { caseSensitive = v; });
+		const wordBtn = makeToggle("wd", "Whole word", () => wholeWord, (v) => { wholeWord = v; });
+		const regexBtn = makeToggle(".*", "Regular expression", () => regexp, (v) => { regexp = v; });
+
+		const toggleGroup = document.createElement("div");
+		toggleGroup.className = "cm-search-bar-group";
+		toggleGroup.append(caseBtn, wordBtn, regexBtn);
+
+		// -- Separator --
+		const sep = document.createElement("span");
+		sep.className = "cm-search-bar-sep";
+
+		// -- Nav buttons --
+		const prevBtn = document.createElement("button");
+		prevBtn.className = "cm-search-bar-btn cm-search-bar-nav";
+		prevBtn.textContent = "\u2039"; // ‹
+		prevBtn.title = "Previous match (Shift+Enter)";
+		prevBtn.addEventListener("click", () => findPrevious(view));
+
+		const nextBtn = document.createElement("button");
+		nextBtn.className = "cm-search-bar-btn cm-search-bar-nav";
+		nextBtn.textContent = "\u203A"; // ›
+		nextBtn.title = "Next match (Enter)";
+		nextBtn.addEventListener("click", () => findNext(view));
+
+		const navGroup = document.createElement("div");
+		navGroup.className = "cm-search-bar-group";
+		navGroup.append(prevBtn, nextBtn);
+
+		// -- Match count --
+		const matchCount = document.createElement("span");
+		matchCount.className = "cm-search-bar-count";
+		matchCount.textContent = "0/0";
+
+		// -- Close button --
+		const closeBtn = document.createElement("button");
+		closeBtn.className = "cm-search-bar-btn cm-search-bar-close";
+		closeBtn.textContent = "\u00D7"; // ×
+		closeBtn.title = "Close (Escape)";
+		closeBtn.addEventListener("click", () => {
+			closeSearchPanel(view);
+			view.focus();
+		});
+
+		searchRow.append(searchInput, toggleGroup, sep, navGroup, matchCount, closeBtn);
+
+		// -- Replace row --
+		const replaceRow = document.createElement("div");
+		replaceRow.className = "cm-search-bar-row cm-search-bar-replace-row";
+		replaceRow.style.display = "none";
+
+		const replaceInput = document.createElement("input");
+		replaceInput.className = "cm-search-bar-input";
+		replaceInput.type = "text";
+		replaceInput.placeholder = "Replace\u2026";
+		replaceInput.addEventListener("input", dispatchQuery);
+		replaceInput.addEventListener("keydown", (e) => {
+			if (e.key === "Enter") {
+				e.preventDefault();
+				replaceNext(view);
+			}
+			if (e.key === "Escape") {
+				e.preventDefault();
+				closeSearchPanel(view);
+				view.focus();
+			}
+		});
+
+		const replaceBtn = document.createElement("button");
+		replaceBtn.className = "cm-search-bar-btn";
+		replaceBtn.textContent = "Replace";
+		replaceBtn.addEventListener("click", () => replaceNext(view));
+
+		const replaceAllBtn = document.createElement("button");
+		replaceAllBtn.className = "cm-search-bar-btn";
+		replaceAllBtn.textContent = "All";
+		replaceAllBtn.addEventListener("click", () => replaceAll(view));
+
+		const replaceActions = document.createElement("div");
+		replaceActions.className = "cm-search-bar-group";
+		replaceActions.append(replaceBtn, replaceAllBtn);
+
+		replaceRow.append(replaceInput, replaceActions);
+
+		const rowsWrapper = document.createElement("div");
+		rowsWrapper.className = "cm-search-bar-rows";
+		rowsWrapper.append(searchRow, replaceRow);
+		dom.append(replaceToggle, rowsWrapper);
+
+		function updateMatchCount() {
+			const query = getSearchQuery(view.state);
+			if (!query.valid || !query.search) {
+				matchCount.textContent = "0/0";
+				return;
+			}
+			const cursor = query.getCursor(view.state.doc);
+			let total = 0;
+			let currentIdx = 0;
+			const sel = view.state.selection.main;
+			let found = false;
+			let iter = cursor.next();
+			while (!iter.done) {
+				total++;
+				if (!found && iter.value.from === sel.from && iter.value.to === sel.to) {
+					currentIdx = total;
+					found = true;
+				}
+				iter = cursor.next();
+			}
+			matchCount.textContent = found ? `${currentIdx}/${total}` : `${total > 0 ? "?" : 0}/${total}`;
+		}
+
+		// Sync input from external query state (e.g. selection-based search)
+		function syncFromState() {
+			const query = getSearchQuery(view.state);
+			if (searchInput.value !== query.search) searchInput.value = query.search;
+			if (replaceInput.value !== query.replace) replaceInput.value = query.replace;
+			if (caseSensitive !== query.caseSensitive) {
+				caseSensitive = query.caseSensitive;
+				caseBtn.classList.toggle("active", caseSensitive);
+			}
+			if (wholeWord !== query.wholeWord) {
+				wholeWord = query.wholeWord;
+				wordBtn.classList.toggle("active", wholeWord);
+			}
+			if (regexp !== query.regexp) {
+				regexp = query.regexp;
+				regexBtn.classList.toggle("active", regexp);
+			}
+		}
+
+		return {
+			dom,
+			top: true,
+			mount() {
+				syncFromState();
+				updateMatchCount();
+				searchInput.focus();
+				searchInput.select();
+			},
+			update(update) {
+				if (update.docChanged || update.selectionSet || update.transactions.some(
+					(tr) => tr.effects.some((e) => e.is(setSearchQuery))
+				)) {
+					syncFromState();
+					updateMatchCount();
+				}
+			},
+		};
+	}
+
 	onMount(() => {
 		const state = EditorState.create({
 			doc,
@@ -119,9 +354,11 @@
 				...(lang
 					? [syntaxHighlighting(defaultHighlightStyle, { fallback: true })]
 					: [inlineRendering()]),
+				search({ top: true, createPanel: createSearchPanel }),
 				keymap.of([
 					...defaultKeymap,
 					...historyKeymap,
+					...searchKeymap,
 					{
 						key: "Mod-s",
 						run: () => {
@@ -335,5 +572,166 @@
 		padding: 0 2em 0.5em;
 		font-size: 0.8em;
 		color: #d14343;
+	}
+
+	/* Custom search bar */
+	.editor-container :global(.cm-search-bar) {
+		font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+		font-size: 0.8125rem;
+		background: color-mix(in srgb, var(--editor-bg) 95%, var(--editor-text));
+		border-bottom: 1px solid color-mix(in srgb, var(--editor-text) 10%, transparent);
+		padding: 5px 8px;
+		display: flex;
+		align-items: flex-start;
+		gap: 0;
+	}
+
+	.editor-container :global(.cm-search-bar-toggle-replace) {
+		flex: 0 0 auto;
+		background: none;
+		border: none;
+		color: var(--editor-text);
+		opacity: 0.45;
+		font-size: 0.6rem;
+		cursor: pointer;
+		padding: 6px 4px 6px 2px;
+		line-height: 1;
+	}
+
+	.editor-container :global(.cm-search-bar-toggle-replace:hover) {
+		opacity: 0.8;
+	}
+
+	.editor-container :global(.cm-search-bar-rows) {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-width: 0;
+		gap: 4px;
+	}
+
+	.editor-container :global(.cm-search-bar-row) {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.editor-container :global(.cm-search-bar-replace-row) {
+		padding-left: 0;
+	}
+
+	.editor-container :global(.cm-search-bar-input) {
+		flex: 1;
+		min-width: 80px;
+		font-family: inherit;
+		font-size: 0.8125rem;
+		color: var(--editor-text);
+		background: var(--editor-bg);
+		border: 1px solid color-mix(in srgb, var(--editor-text) 15%, transparent);
+		border-radius: 5px;
+		padding: 3px 8px;
+		outline: none;
+	}
+
+	.editor-container :global(.cm-search-bar-input:focus) {
+		border-color: var(--accent-color);
+	}
+
+	.editor-container :global(.cm-search-bar-input::placeholder) {
+		color: var(--editor-text);
+		opacity: 0.35;
+	}
+
+	.editor-container :global(.cm-search-bar-group) {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		flex: 0 0 auto;
+	}
+
+	.editor-container :global(.cm-search-bar-btn) {
+		font-family: inherit;
+		font-size: 0.75rem;
+		color: var(--editor-text);
+		background: color-mix(in srgb, var(--editor-text) 6%, transparent);
+		border: 1px solid color-mix(in srgb, var(--editor-text) 10%, transparent);
+		border-radius: 5px;
+		padding: 2px 8px;
+		cursor: pointer;
+		line-height: 1.4;
+		white-space: nowrap;
+	}
+
+	.editor-container :global(.cm-search-bar-btn:hover) {
+		background: color-mix(in srgb, var(--editor-text) 12%, transparent);
+	}
+
+	.editor-container :global(.cm-search-bar-btn:active) {
+		background: color-mix(in srgb, var(--editor-text) 18%, transparent);
+	}
+
+	.editor-container :global(.cm-search-bar-toggle) {
+		font-weight: 600;
+		min-width: 26px;
+		text-align: center;
+		opacity: 0.5;
+	}
+
+	.editor-container :global(.cm-search-bar-toggle.active) {
+		opacity: 1;
+		background: var(--accent-color);
+		color: white;
+		border-color: var(--accent-color);
+	}
+
+	.editor-container :global(.cm-search-bar-nav) {
+		font-size: 1rem;
+		font-weight: 300;
+		padding: 0 6px;
+		line-height: 1.2;
+	}
+
+	.editor-container :global(.cm-search-bar-sep) {
+		width: 1px;
+		height: 16px;
+		background: color-mix(in srgb, var(--editor-text) 12%, transparent);
+		margin: 0 4px;
+		flex: 0 0 auto;
+	}
+
+	.editor-container :global(.cm-search-bar-count) {
+		font-size: 0.7rem;
+		font-variant-numeric: tabular-nums;
+		color: var(--editor-text);
+		opacity: 0.5;
+		min-width: 32px;
+		text-align: center;
+		flex: 0 0 auto;
+	}
+
+	.editor-container :global(.cm-search-bar-close) {
+		font-size: 1rem;
+		padding: 0 4px;
+		line-height: 1.2;
+		opacity: 0.5;
+	}
+
+	.editor-container :global(.cm-search-bar-close:hover) {
+		opacity: 1;
+	}
+
+	.editor-container :global(.cm-selectionMatch) {
+		background: color-mix(in srgb, var(--accent-color) 20%, transparent);
+	}
+
+	.editor-container :global(.cm-searchMatch) {
+		background: color-mix(in srgb, var(--dirty-color) 30%, transparent);
+		border-radius: 2px;
+	}
+
+	.editor-container :global(.cm-searchMatch-selected) {
+		background: color-mix(in srgb, var(--dirty-color) 55%, transparent);
 	}
 </style>

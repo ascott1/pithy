@@ -12,6 +12,7 @@ import {
 } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import type { Extension, Range, SelectionRange } from "@codemirror/state";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 /**
  * Returns true if any selection range intersects [from, to].
@@ -33,6 +34,49 @@ function selectionIntersects(
 		}
 	}
 	return false;
+}
+
+/**
+ * Resolves a document position to a link URL, if the position is inside
+ * a rendered (non-active) Link node. Returns null if the cursor is inside
+ * the link (raw markdown visible), or if the URL is not an external link.
+ */
+function getLinkUrl(view: EditorView, pos: number): string | null {
+	const { state } = view;
+	let node = syntaxTree(state).resolveInner(pos);
+
+	// Walk up to find the Link parent
+	while (node && node.name !== "Link") {
+		if (!node.parent) return null;
+		node = node.parent;
+	}
+	if (!node || node.name !== "Link") return null;
+
+	// If cursor intersects the link range, raw markdown is visible — don't open
+	if (selectionIntersects(node.from, node.to, state.selection.ranges)) {
+		return null;
+	}
+
+	// Find the URL child node
+	const cur = node.cursor();
+	if (cur.firstChild()) {
+		do {
+			if (cur.name === "URL") {
+				const url = state.doc.sliceString(cur.from, cur.to);
+				if (
+					url &&
+					(url.startsWith("http://") ||
+						url.startsWith("https://") ||
+						url.startsWith("mailto:"))
+				) {
+					return url;
+				}
+				return null;
+			}
+		} while (cur.nextSibling());
+	}
+
+	return null;
 }
 
 function buildDecorations(view: EditorView): DecorationSet {
@@ -310,6 +354,31 @@ const inlineRenderingPlugin = ViewPlugin.fromClass(
 	},
 	{
 		decorations: (v) => v.decorations,
+		eventHandlers: {
+			mousedown(event: MouseEvent, view: EditorView) {
+				if (!event.metaKey || event.button !== 0) return false;
+				const pos = view.posAtCoords({
+					x: event.clientX,
+					y: event.clientY,
+				});
+				if (pos === null) return false;
+				const url = getLinkUrl(view, pos);
+				if (!url) return false;
+				event.preventDefault();
+				openUrl(url);
+				return true;
+			},
+			keydown(event: KeyboardEvent, view: EditorView) {
+				if (event.key === "Meta") {
+					view.contentDOM.classList.add("cm-meta-held");
+				}
+			},
+			keyup(event: KeyboardEvent, view: EditorView) {
+				if (event.key === "Meta") {
+					view.contentDOM.classList.remove("cm-meta-held");
+				}
+			},
+		},
 	},
 );
 
@@ -367,11 +436,20 @@ const inlineRenderingTheme = EditorView.baseTheme({
 	},
 
 	".cm-md-link": {
-		color: "var(--accent-color, #4078f2)",
+		color: "var(--link-color, var(--accent-color, #4078f2))",
 		textDecoration: "underline",
+		textDecorationColor: "transparent",
 		textUnderlineOffset: "2px",
-		textDecorationColor:
-			"color-mix(in srgb, var(--accent-color, #4078f2) 40%, transparent)",
+		textDecorationThickness: "1.5px",
+		borderRadius: "2px",
+		transition: "text-decoration-color 150ms ease, background-color 150ms ease",
+	},
+
+	".cm-meta-held .cm-md-link:hover": {
+		cursor: "pointer",
+		textDecorationColor: "var(--link-color, var(--accent-color, #4078f2))",
+		backgroundColor:
+			"color-mix(in srgb, var(--link-color, var(--accent-color, #4078f2)) 8%, transparent)",
 	},
 
 	".cm-md-inline-code": {

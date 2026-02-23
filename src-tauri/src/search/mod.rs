@@ -97,6 +97,26 @@ pub fn search_status(state: tauri::State<'_, SearchState>) -> String {
 }
 
 #[tauri::command]
+pub fn list_tags(state: tauri::State<'_, SearchState>) -> Result<Vec<String>, String> {
+    let searcher = state.reader.searcher();
+    let mut tags = std::collections::BTreeSet::new();
+
+    for segment_reader in searcher.segment_readers() {
+        let inv_index = segment_reader.inverted_index(state.fields.tags)
+            .map_err(|e| format!("Failed to read tags index: {e}"))?;
+        let mut term_stream = inv_index.terms().stream()
+            .map_err(|e| format!("Failed to stream terms: {e}"))?;
+        while term_stream.advance() {
+            if let Ok(s) = std::str::from_utf8(term_stream.key()) {
+                tags.insert(s.to_string());
+            }
+        }
+    }
+
+    Ok(tags.into_iter().collect())
+}
+
+#[tauri::command]
 pub fn search_rebuild(state: tauri::State<'_, SearchState>) -> Result<(), String> {
     state
         .op_sender

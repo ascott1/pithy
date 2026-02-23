@@ -1,5 +1,8 @@
 <script lang="ts">
   import { fuzzyScore } from "$lib/fuzzy";
+  import { listTags, searchQuery } from "$lib/tauri/search";
+  import type { SearchHit } from "$lib/tauri/search";
+  import { cleanSnippet } from "$lib/snippets";
 
   interface FileEntry {
     path: string;
@@ -11,10 +14,11 @@
     recents: string[];
     onselect: (path: string) => void;
     oncreate: (name: string) => void;
+    onsearch: (query: string) => void;
     onclose: () => void;
   }
 
-  let { files, recents, onselect, oncreate, onclose }: Props = $props();
+  let { files, recents, onselect, oncreate, onsearch, onclose }: Props = $props();
 
   let query = $state("");
   let selectedIndex = $state(0);
@@ -27,8 +31,67 @@
   }
 
   const MAX_RESULTS = 50;
+  const MAX_CONTENT_RESULTS = 8;
+
+  // Tag browsing state
+  let allTags = $state<string[]>([]);
+  let tagsLoaded = $state(false);
+
+  // Inline content search state
+  let contentHits = $state<SearchHit[]>([]);
+  let contentSearchSeq = 0;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let isTagMode = $derived(query.startsWith("#"));
+  let isSearchMode = $derived(query.startsWith("/"));
+
+  // The actual text to search with, stripping the / prefix in search mode
+  let searchText = $derived(isSearchMode ? query.slice(1) : query);
+
+  // Load tags when entering tag mode
+  $effect(() => {
+    if (isTagMode && !tagsLoaded) {
+      listTags().then((tags) => {
+        allTags = tags;
+        tagsLoaded = true;
+      }).catch(() => {
+        allTags = [];
+        tagsLoaded = true;
+      });
+    }
+  });
+
+  // Debounced content search when there's a query
+  $effect(() => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    const q = searchText.trim();
+    if (!q || isTagMode) {
+      contentHits = [];
+      return;
+    }
+    debounceTimer = setTimeout(() => {
+      const seq = ++contentSearchSeq;
+      searchQuery(q, MAX_CONTENT_RESULTS).then((res) => {
+        if (seq !== contentSearchSeq) return;
+        contentHits = res.hits;
+      }).catch(() => {
+        if (seq !== contentSearchSeq) return;
+        contentHits = [];
+      });
+    }, 150);
+  });
+
+  let tagResults = $derived.by(() => {
+    if (!isTagMode) return [];
+    const filter = query.slice(1).toLowerCase();
+    const filtered = filter
+      ? allTags.filter((t) => t.toLowerCase().includes(filter))
+      : allTags;
+    return filtered.slice(0, MAX_RESULTS);
+  });
 
   let results = $derived.by(() => {
+    if (isTagMode || isSearchMode) return [];
     const q = query.trim();
     if (!q) {
       const recentSet = new Set(recents);
@@ -58,12 +121,27 @@
     return scored.slice(0, MAX_RESULTS);
   });
 
+  // Filter content hits to exclude files already shown in filename results
+  let filteredContentHits = $derived.by(() => {
+    if (!searchText.trim() || isTagMode) return [];
+    const filenamePaths = new Set(results.map((r) => r.path));
+    return contentHits.filter((h) => !filenamePaths.has(h.path));
+  });
+
   let showCreate = $derived(
-    query.trim().length > 0 && results.length === 0,
+    !isTagMode && !isSearchMode && query.trim().length > 0 && results.length === 0,
   );
 
+  // Total number of actionable items in the list
+  let totalItems = $derived.by(() => {
+    if (isTagMode) return tagResults.length;
+    return results.length + (showCreate ? 1 : 0) + filteredContentHits.length;
+  });
+
   $effect(() => {
+    // Reset selection when filename results change
     void results;
+    void tagResults;
     selectedIndex = 0;
   });
 
@@ -71,23 +149,35 @@
     inputEl?.focus();
   });
 
-  function handleKeydown(e: KeyboardEvent) {
-    const total = results.length + (showCreate ? 1 : 0);
+  function stemDisplay(stem: string): string {
+    return stem.replaceAll("-", " ").replaceAll("_", " ");
+  }
 
+  function handleKeydown(e: KeyboardEvent) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      selectedIndex = (selectedIndex + 1) % Math.max(total, 1);
+      selectedIndex = (selectedIndex + 1) % Math.max(totalItems, 1);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      selectedIndex = (selectedIndex - 1 + Math.max(total, 1)) % Math.max(total, 1);
+      selectedIndex = (selectedIndex - 1 + Math.max(totalItems, 1)) % Math.max(totalItems, 1);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (showCreate && selectedIndex === results.length) {
-        oncreate(query.trim());
-      } else if (results[selectedIndex]) {
+      if (isTagMode) {
+        if (tagResults[selectedIndex]) {
+          onsearch(`#${tagResults[selectedIndex]}`);
+        }
+      } else if (selectedIndex < results.length) {
         onselect(results[selectedIndex].path);
-      } else if (showCreate) {
-        oncreate(query.trim());
+      } else {
+        const afterFiles = selectedIndex - results.length;
+        if (showCreate && afterFiles === 0) {
+          oncreate(query.trim());
+        } else {
+          const contentIndex = afterFiles - (showCreate ? 1 : 0);
+          if (filteredContentHits[contentIndex]) {
+            onselect(filteredContentHits[contentIndex].path);
+          }
+        }
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
@@ -112,43 +202,92 @@
       onkeydown={handleKeydown}
       class="switcher-input"
       type="text"
-      placeholder="Open or create a note…"
+      placeholder="Open or create a note, # tags, / search…"
       spellcheck="false"
       autocomplete="off"
     />
 
-    {#if results.length > 0 || showCreate}
+    {#if isTagMode}
       <div class="switcher-results" role="listbox">
-        {#each results as result, i}
-          <button
-            class="switcher-item"
-            class:selected={i === selectedIndex}
-            role="option"
-            aria-selected={i === selectedIndex}
-            onclick={() => onselect(result.path)}
-            onpointerenter={() => (selectedIndex = i)}
-          >
-            <span class="item-stem">{result.stem}</span>
-            {#if result.path.includes("/")}
-              <span class="item-dir">{result.path.replace(/\/[^/]+$/, "")}</span>
-            {/if}
-          </button>
-        {/each}
-
-        {#if showCreate}
-          <button
-            class="switcher-item create-item"
-            class:selected={selectedIndex === results.length}
-            role="option"
-            aria-selected={selectedIndex === results.length}
-            onclick={() => oncreate(query.trim())}
-            onpointerenter={() => (selectedIndex = results.length)}
-          >
-            <span class="create-label">Create</span>
-            <span class="create-name">"{query.trim()}"</span>
-          </button>
+        {#if tagResults.length > 0}
+          {#each tagResults as tag, i}
+            <button
+              class="switcher-item"
+              class:selected={i === selectedIndex}
+              role="option"
+              aria-selected={i === selectedIndex}
+              onclick={() => onsearch(`#${tag}`)}
+              onpointerenter={() => (selectedIndex = i)}
+            >
+              <span class="item-tag">#{tag}</span>
+            </button>
+          {/each}
+        {:else if tagsLoaded}
+          <div class="switcher-empty">No tags found</div>
+        {:else}
+          <div class="switcher-empty">Loading tags…</div>
         {/if}
       </div>
+    {:else if results.length > 0 || showCreate || filteredContentHits.length > 0}
+      <div class="switcher-results" role="listbox">
+        {#if results.length > 0}
+          {#each results as result, i}
+            <button
+              class="switcher-item"
+              class:selected={i === selectedIndex}
+              role="option"
+              aria-selected={i === selectedIndex}
+              onclick={() => onselect(result.path)}
+              onpointerenter={() => (selectedIndex = i)}
+            >
+              <span class="item-stem">{result.stem}</span>
+              {#if result.path.includes("/")}
+                <span class="item-dir">{result.path.replace(/\/[^/]+$/, "")}</span>
+              {/if}
+            </button>
+          {/each}
+        {/if}
+
+        {#if showCreate}
+          {@const createIndex = results.length}
+          <div class="section-divider">Note</div>
+          <button
+            class="switcher-item create-item"
+            class:selected={selectedIndex === createIndex}
+            role="option"
+            aria-selected={selectedIndex === createIndex}
+            onclick={() => oncreate(query.trim())}
+            onpointerenter={() => (selectedIndex = createIndex)}
+          >
+            <span class="create-plus">+</span>
+            <span class="create-text">Create "{query.trim()}"</span>
+          </button>
+        {/if}
+
+        {#if filteredContentHits.length > 0}
+          <div class="section-divider">{isSearchMode ? `Search for "${searchText.trim()}"` : "In notes"}</div>
+          {#each filteredContentHits as hit, i}
+            {@const flatIndex = results.length + (showCreate ? 1 : 0) + i}
+            <button
+              class="switcher-item content-item"
+              class:selected={selectedIndex === flatIndex}
+              role="option"
+              aria-selected={selectedIndex === flatIndex}
+              onclick={() => onselect(hit.path)}
+              onpointerenter={() => (selectedIndex = flatIndex)}
+            >
+              <div class="content-hit">
+                <span class="content-stem">{stemDisplay(hit.filenameStem)}</span>
+                {#if hit.snippet}
+                  <span class="content-snippet">{@html cleanSnippet(hit.snippet)}</span>
+                {/if}
+              </div>
+            </button>
+          {/each}
+        {/if}
+      </div>
+    {:else if isSearchMode && searchText.trim()}
+      <div class="switcher-empty">No results</div>
     {/if}
   </div>
 </div>
@@ -259,21 +398,76 @@
     font-weight: 400;
   }
 
+  .item-tag {
+    opacity: 0.7;
+  }
+
+  .section-divider {
+    padding: 10px 12px 4px;
+    font-size: 0.75rem;
+    font-weight: 400;
+    letter-spacing: -0.006em;
+    opacity: 0.35;
+    border-top: 1px solid color-mix(in srgb, var(--editor-text) 8%, transparent);
+    margin-top: 2px;
+  }
+
   .create-item {
-    gap: 8px;
+    gap: 10px;
   }
 
-  .create-label {
+  .create-plus {
     flex-shrink: 0;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    opacity: 0.45;
+    font-size: 1rem;
+    font-weight: 300;
+    opacity: 0.4;
+    line-height: 1;
   }
 
-  .create-name {
-    font-style: italic;
+  .create-text {
     opacity: 0.65;
+  }
+
+  .content-item {
+    align-items: flex-start;
+  }
+
+  .content-hit {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .content-stem {
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: -0.006em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .content-snippet {
+    font-size: 0.75rem;
+    line-height: 1.4;
+    opacity: 0.45;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+  }
+
+  .content-snippet :global(b) {
+    font-weight: 600;
+    opacity: 1;
+    color: var(--editor-text);
+  }
+
+  .switcher-empty {
+    padding: 20px 18px;
+    text-align: center;
+    font-size: 0.8125rem;
+    opacity: 0.35;
   }
 </style>
