@@ -24,14 +24,19 @@ pithy/
 ├── src/                    # Frontend (Svelte/TypeScript)
 │   ├── lib/
 │   │   ├── autosave.ts      # AutoSaveController — debounced single-writer autosave
+│   │   ├── fuzzy.ts         # fuzzyScore() — subsequence matching for filename stems
+│   │   ├── QuickSwitcher.svelte  # Cmd+K modal — file nav, fuzzy search, create-on-enter
+│   │   ├── SearchPanel.svelte    # Cmd+Shift+F modal — full-text search via Tantivy
 │   │   ├── editor/
-│   │   │   └── MarkdownEditor.svelte  # CodeMirror 6 wrapper + inline title (injected into CM scroller)
+│   │   │   ├── MarkdownEditor.svelte  # CodeMirror 6 wrapper + inline title (injected into CM scroller)
+│   │   │   └── inlineRendering.ts     # Live preview — hides markdown syntax, renders styled output
 │   │   └── tauri/
 │   │       ├── config.ts    # Typed invoke wrappers for config commands
-│   │       └── fs.ts        # Typed invoke wrappers for Rust commands
+│   │       ├── fs.ts        # Typed invoke wrappers for Rust commands
+│   │       └── search.ts   # Typed invoke wrappers for Tantivy search commands
 │   ├── routes/             # SvelteKit routes
 │   │   ├── +layout.ts      # SSR disabled (ssr = false, prerender = true)
-│   │   └── +page.svelte    # Main page — title + editor surface
+│   │   └── +page.svelte    # Main page — title + editor surface, CSS variable definitions
 │   └── app.html            # HTML shell
 ├── src-tauri/              # Rust backend
 │   ├── src/
@@ -94,10 +99,20 @@ All paths are relative to vault root. `resolve_path()` rejects `..`, absolute pa
 A single deterministic function (defined in Rust, exposed via Tauri command) used everywhere: spaces → dashes, strip illegal characters (`/ \ : * ? " < > |`), lowercase everything.
 
 ### Inline Rendering (Not WYSIWYG)
-The editor uses CodeMirror decorations to render markdown inline (bold appears bold, headers resize, links clickable) while raw markdown is accessible on cursor focus.
+The editor uses CodeMirror decorations to render markdown inline (bold appears bold, headers resize, links styled) while raw markdown is revealed when the cursor enters an element. Implemented in `src/lib/editor/inlineRendering.ts`.
 
-**MVP inline rendering:** headers, bold, italic, links, inline code, code blocks, blockquotes, horizontal rules.
-**Deferred:** tables, footnotes, math blocks, embedded images.
+**Architecture:** A CM6 `ViewPlugin` that recomputes `Decoration`s over `view.visibleRanges` whenever `docChanged`, `selectionSet`, or `viewportChanged` fires. It walks the Lezer markdown syntax tree via `syntaxTree(state).iterate()`. For each node: if the cursor intersects its range → skip decorations (show raw markdown); otherwise → hide delimiters with `Decoration.replace({})` and style content with `Decoration.mark`/`Decoration.line`.
+
+**Key implementation details:**
+- **Container/composable nodes** (headings, bold, italic, links, blockquotes) must `return` (not `return false`) from the tree iterator so nested formatting renders correctly (e.g., bold inside headings, italic inside blockquotes).
+- **Leaf nodes** (inline code, fenced code, horizontal rules) use `return false` to prevent descending into children.
+- **Block widget decorations** (`Decoration.replace({block: true})`) cannot be provided by `ViewPlugin`s — they require a `StateField`. Horizontal rules use `Decoration.line()` + `Decoration.replace({})` instead.
+- **Custom highlight style:** The extension bundles its own `HighlightStyle` (a copy of `defaultHighlightStyle` with `textDecoration: underline` removed from `heading` and `link` tags). In markdown mode this replaces `defaultHighlightStyle`; TOML config mode still uses the original.
+- **IME composition:** Decoration building is skipped entirely when `view.composing` is true.
+- **Cursor boundary:** `selectionIntersects()` uses inclusive checks for empty selections so cursor at a delimiter edge counts as "inside".
+
+**Implemented elements:** ATX headings (H1–H6), bold, italic, links (hides `[]()` and URL), inline code, fenced code blocks (styled lines, dimmed fences), blockquotes (hides `>`, left border), horizontal rules (replaced with styled line).
+**Deferred:** tables, footnotes, math blocks, embedded images, setext headings, link click-to-open.
 
 ### Navigation: Cmd+K Is Everything
 - Cmd+K is the **unified** quick switcher for navigation AND creation.
@@ -235,3 +250,4 @@ Graph view, block references/transclusion, frontmatter parsing, PDF/media, expor
 - **Editor remounting** — wrap `MarkdownEditor` in `{#key currentPath}` so each file gets a fresh CodeMirror instance with clean undo history.
 - **Config identifier:** `com.writepithy.app`
 - **Autosave flush-before-switch** — always `await autosave.flushAndWait()` before opening a different file or renaming. After rename, call `autosave.setOpenedFile(newPath, doc)` to reset the baseline.
+- **CSS variables** — define on `:global(:root)` (not scoped `:root`) so they reach CodeMirror's shadow styles. Use `prefers-color-scheme: dark` media query for dark mode. Current vars: `--editor-bg`, `--editor-text`, `--editor-cursor`, `--editor-selection`, `--accent-color`, `--dirty-color`, `--content-max-width`, `--editor-font-size`, `--editor-font-family`, `--editor-line-height`.
