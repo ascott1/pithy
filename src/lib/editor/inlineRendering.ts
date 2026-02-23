@@ -314,15 +314,49 @@ const inlineRenderingPlugin = ViewPlugin.fromClass(
 );
 
 const inlineRenderingTheme = EditorView.baseTheme({
+	// Minor third scale (1.2): title 2.488 → H1 2.074 → H2 1.728 → H3 1.44 → H4 1.2 → H5 1 → H6 0.833
 	".cm-md-heading": {
 		fontWeight: "700",
 	},
-	".cm-md-h1": { fontSize: "1.5em", lineHeight: "1.2" },
-	".cm-md-h2": { fontSize: "1.3em", lineHeight: "1.25" },
-	".cm-md-h3": { fontSize: "1.15em", lineHeight: "1.3" },
-	".cm-md-h4": { fontSize: "1.05em", lineHeight: "1.35" },
-	".cm-md-h5": { fontSize: "1em" },
-	".cm-md-h6": { fontSize: "0.95em", opacity: "0.85" },
+	".cm-md-h1": {
+		fontSize: "2.074em",
+		lineHeight: "1.15",
+		letterSpacing: "-0.02em",
+		paddingTop: "0.75em !important",
+		paddingBottom: "0.15em !important",
+	},
+	".cm-md-h2": {
+		fontSize: "1.728em",
+		lineHeight: "1.2",
+		letterSpacing: "-0.015em",
+		paddingTop: "0.6em !important",
+		paddingBottom: "0.1em !important",
+	},
+	".cm-md-h3": {
+		fontSize: "1.44em",
+		lineHeight: "1.25",
+		letterSpacing: "-0.01em",
+		fontWeight: "600",
+		paddingTop: "0.5em !important",
+	},
+	".cm-md-h4": {
+		fontSize: "1.2em",
+		lineHeight: "1.35",
+		fontWeight: "600",
+		paddingTop: "0.4em !important",
+	},
+	".cm-md-h5": {
+		fontSize: "1em",
+		fontWeight: "600",
+		letterSpacing: "0.01em",
+		paddingTop: "0.3em !important",
+	},
+	".cm-md-h6": {
+		fontSize: "1em",
+		fontWeight: "600",
+		letterSpacing: "0.025em",
+		paddingTop: "0.3em !important",
+	},
 
 	".cm-md-strong": {
 		fontWeight: "700",

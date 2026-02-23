@@ -79,7 +79,7 @@
 			maxWidth: "var(--content-max-width)",
 			width: "100%",
 			margin: "0 auto",
-			padding: "0 2rem 2rem",
+			padding: "0 2em 2em",
 			caretColor: "var(--editor-cursor)",
 		},
 		".cm-line": {
@@ -283,22 +283,23 @@
 		max-width: var(--content-max-width);
 		width: 100%;
 		margin: 0 auto;
-		padding: 2rem 2rem 0;
+		padding: 2em 2em 0;
 	}
 
 	.editor-container :global(.cm-note-title) {
 		display: block;
 		width: 100%;
 		font: inherit;
-		font-size: 1.8rem;
+		font-size: 2.488em;
 		font-weight: 700;
-		line-height: 1.2;
+		line-height: 1.1;
+		letter-spacing: -0.025em;
 		color: var(--editor-text);
 		background: transparent;
 		border: none;
 		outline: none;
 		margin: 0;
-		padding: 0 0 0.5rem;
+		padding: 0 0 0.3em;
 	}
 
 	.editor-container :global(.cm-note-title::placeholder) {
@@ -312,9 +313,9 @@
 
 	.editor-container :global(.cm-dirty-indicator) {
 		position: absolute;
-		right: 2rem;
-		top: 2.5rem;
-		font-size: 0.5rem;
+		right: 2em;
+		top: 2.5em;
+		font-size: 0.5em;
 		color: var(--dirty-color);
 		transition: opacity 0.15s;
 	}
@@ -331,8 +332,8 @@
 	.editor-container :global(.cm-title-error) {
 		max-width: var(--content-max-width);
 		margin: 0 auto;
-		padding: 0 2rem 0.5rem;
-		font-size: 0.8rem;
+		padding: 0 2em 0.5em;
+		font-size: 0.8em;
 		color: #d14343;
 	}
 </style>
