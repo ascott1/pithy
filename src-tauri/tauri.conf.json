@@ -14,7 +14,9 @@
       {
         "title": "Pithy",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "titleBarStyle": "overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

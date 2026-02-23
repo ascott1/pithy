@@ -278,6 +278,7 @@
 </script>
 
 <div class="app">
+	<div class="drag-region" data-tauri-drag-region></div>
 	{#if configWarning}
 		<div class="warning-banner">
 			<span class="warning-text">{configWarning}</span>
@@ -378,6 +379,7 @@
 
 	.app {
 		display: flex;
+		flex-direction: column;
 		height: 100vh;
 		margin: 0;
 		font-family:
@@ -385,6 +387,12 @@
 			sans-serif;
 		background: var(--editor-bg);
 		color: var(--editor-text);
+	}
+
+	.drag-region {
+		height: 28px;
+		flex-shrink: 0;
+		-webkit-app-region: drag;
 	}
 
 	.editor-surface {
