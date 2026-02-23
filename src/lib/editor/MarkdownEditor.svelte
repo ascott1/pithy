@@ -13,6 +13,7 @@
 		syntaxHighlighting,
 		defaultHighlightStyle,
 	} from "@codemirror/language";
+	import { inlineRendering } from "$lib/editor/inlineRendering";
 
 	interface Props {
 		doc: string;
@@ -115,6 +116,7 @@
 				EditorView.lineWrapping,
 				history(),
 				lang ?? markdown({ codeLanguages: languages }),
+				...(lang ? [] : [inlineRendering()]),
 				syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 				keymap.of([
 					...defaultKeymap,

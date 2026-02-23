@@ -358,6 +358,7 @@
 		--editor-text: #1a1a1a;
 		--editor-cursor: #333;
 		--editor-selection: #d7e4f2;
+		--accent-color: #4078f2;
 		--dirty-color: #f59e0b;
 		--content-max-width: 680px;
 		--editor-font-size: 15px;
@@ -371,6 +372,7 @@
 			--editor-text: #d4d4d4;
 			--editor-cursor: #c6c6c6;
 			--editor-selection: #264f78;
+			--accent-color: #6ab0f3;
 		}
 	}
 
