@@ -2,9 +2,12 @@
 	import { onMount, onDestroy } from "svelte";
 	import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 	import MarkdownEditor from "$lib/editor/MarkdownEditor.svelte";
+	import QuickSwitcher from "$lib/QuickSwitcher.svelte";
+	import SearchPanel from "$lib/SearchPanel.svelte";
 	import {
 		listFiles,
 		readFile,
+		saveFile,
 		renameFile,
 		sanitizeFilename,
 	} from "$lib/tauri/fs";
@@ -47,6 +50,17 @@
 		}
 	};
 
+	let showSwitcher = $state(false);
+	let showSearch = $state(false);
+
+	interface FileEntry {
+		path: string;
+		stem: string;
+	}
+
+	let fileEntries = $state<FileEntry[]>([]);
+	let recentPaths = $state<string[]>([]);
+
 	let titleDraft = $state("");
 	let isRenaming = $state(false);
 	let renameError = $state<string | null>(null);
@@ -69,13 +83,39 @@
 		});
 
 		const files = await listFiles();
+		fileEntries = buildFileEntries(files);
 		if (files.length > 0) {
 			await openFile(files[0]);
+			addRecent(files[0]);
 		}
 	});
 
 	onDestroy(() => {
 		unlistenConfig?.();
+	});
+
+	function handleGlobalKeydown(e: KeyboardEvent) {
+		if (e.isComposing) return;
+
+		if (e.metaKey && e.key === "k") {
+			e.preventDefault();
+			showSearch = false;
+			if (!showSwitcher) {
+				listFiles().then((files) => {
+					fileEntries = buildFileEntries(files);
+				});
+			}
+			showSwitcher = !showSwitcher;
+		} else if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "f") {
+			e.preventDefault();
+			showSwitcher = false;
+			showSearch = !showSearch;
+		}
+	}
+
+	$effect(() => {
+		window.addEventListener("keydown", handleGlobalKeydown);
+		return () => window.removeEventListener("keydown", handleGlobalKeydown);
 	});
 
 	function displayName(path: string): string {
@@ -91,6 +131,42 @@
 		const parts = relPath.split("/");
 		parts.pop();
 		return parts.join("/");
+	}
+
+	function buildFileEntries(paths: string[]): FileEntry[] {
+		return paths.map((p) => ({
+			path: p,
+			stem: displayName(p),
+		}));
+	}
+
+	function addRecent(path: string) {
+		recentPaths = [path, ...recentPaths.filter((r) => r !== path)].slice(0, 20);
+	}
+
+	async function openNote(path: string) {
+		showSwitcher = false;
+		showSearch = false;
+		if (mode === "config") {
+			await configAutosave.flushAndWait();
+			mode = "vault";
+		}
+		await openFile(path);
+		addRecent(path);
+	}
+
+	async function createNote(name: string) {
+		const sanitized = await sanitizeFilename(name);
+		const relPath = `${sanitized}.md`;
+
+		if (fileEntries.some((f) => f.path === relPath)) {
+			await openNote(relPath);
+			return;
+		}
+
+		await saveFile(relPath, "");
+		fileEntries = [...fileEntries, { path: relPath, stem: displayName(relPath) }];
+		await openNote(relPath);
 	}
 
 	async function openConfig() {
@@ -258,6 +334,23 @@
 		<div class="empty">No file open</div>
 	{/if}
 </div>
+
+{#if showSwitcher}
+	<QuickSwitcher
+		files={fileEntries}
+		recents={recentPaths}
+		onselect={(path) => void openNote(path)}
+		oncreate={(name) => void createNote(name)}
+		onclose={() => (showSwitcher = false)}
+	/>
+{/if}
+
+{#if showSearch}
+	<SearchPanel
+		onselect={(path) => void openNote(path)}
+		onclose={() => (showSearch = false)}
+	/>
+{/if}
 
 <style>
 	:global(:root) {
