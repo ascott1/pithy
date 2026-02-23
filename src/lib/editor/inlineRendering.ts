@@ -5,7 +5,12 @@ import {
 	ViewPlugin,
 	type ViewUpdate,
 } from "@codemirror/view";
-import { syntaxTree } from "@codemirror/language";
+import {
+	syntaxTree,
+	HighlightStyle,
+	syntaxHighlighting,
+} from "@codemirror/language";
+import { tags } from "@lezer/highlight";
 import type { Extension, Range, SelectionRange } from "@codemirror/state";
 
 /**
@@ -311,10 +316,6 @@ const inlineRenderingPlugin = ViewPlugin.fromClass(
 const inlineRenderingTheme = EditorView.baseTheme({
 	".cm-md-heading": {
 		fontWeight: "700",
-		textDecoration: "none",
-	},
-	".cm-md-heading *": {
-		textDecoration: "none !important",
 	},
 	".cm-md-h1": { fontSize: "1.5em", lineHeight: "1.2" },
 	".cm-md-h2": { fontSize: "1.3em", lineHeight: "1.25" },
@@ -369,6 +370,48 @@ const inlineRenderingTheme = EditorView.baseTheme({
 	},
 });
 
+/**
+ * A highlight style based on defaultHighlightStyle but with underlines
+ * removed from headings and links — we handle those via decorations.
+ */
+const highlightStyle = HighlightStyle.define([
+	{ tag: tags.meta, color: "#404740" },
+	{ tag: tags.link, color: "#219" },
+	{ tag: tags.heading, fontWeight: "bold" },
+	{ tag: tags.emphasis, fontStyle: "italic" },
+	{ tag: tags.strong, fontWeight: "bold" },
+	{ tag: tags.strikethrough, textDecoration: "line-through" },
+	{ tag: tags.keyword, color: "#708" },
+	{
+		tag: [
+			tags.atom,
+			tags.bool,
+			tags.url,
+			tags.contentSeparator,
+			tags.labelName,
+		],
+		color: "#219",
+	},
+	{ tag: [tags.literal, tags.inserted], color: "#164" },
+	{ tag: [tags.string, tags.deleted], color: "#a11" },
+	{
+		tag: [tags.regexp, tags.escape, tags.special(tags.string)],
+		color: "#e40",
+	},
+	{ tag: tags.definition(tags.variableName), color: "#00f" },
+	{ tag: tags.local(tags.variableName), color: "#30a" },
+	{ tag: [tags.typeName, tags.namespace], color: "#085" },
+	{ tag: tags.className, color: "#167" },
+	{ tag: [tags.special(tags.variableName), tags.macroName], color: "#256" },
+	{ tag: tags.definition(tags.propertyName), color: "#00c" },
+	{ tag: tags.comment, color: "#940" },
+	{ tag: tags.invalid, color: "#f00" },
+]);
+
 export function inlineRendering(): Extension {
-	return [inlineRenderingPlugin, inlineRenderingTheme];
+	return [
+		inlineRenderingPlugin,
+		inlineRenderingTheme,
+		syntaxHighlighting(highlightStyle, { fallback: true }),
+	];
 }

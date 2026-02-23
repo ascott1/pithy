@@ -116,8 +116,9 @@
 				EditorView.lineWrapping,
 				history(),
 				lang ?? markdown({ codeLanguages: languages }),
-				...(lang ? [] : [inlineRendering()]),
-				syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+				...(lang
+					? [syntaxHighlighting(defaultHighlightStyle, { fallback: true })]
+					: [inlineRendering()]),
 				keymap.of([
 					...defaultKeymap,
 					...historyKeymap,
