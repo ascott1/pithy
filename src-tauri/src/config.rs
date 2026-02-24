@@ -19,6 +19,10 @@ version = 1
 # Changing this requires restarting Pithy.
 dir = "~/Documents/Pithy"
 
+# Automatically update [[wikilinks]] in other notes when you rename a file.
+# Set to false to be prompted before updating.
+# auto-update-links = true
+
 [editor]
 # Font size in pixels for the editor body text.
 # font-size = 15
@@ -30,7 +34,12 @@ dir = "~/Documents/Pithy"
 # line-height = 1.7
 "#;
 
+fn default_auto_update_links() -> bool {
+    true
+}
+
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Config {
     #[serde(default = "default_version")]
     pub version: u32,
@@ -38,6 +47,8 @@ pub struct Config {
     pub vault: VaultConfig,
     #[serde(default)]
     pub editor: EditorConfig,
+    #[serde(default = "default_auto_update_links")]
+    pub auto_update_links: bool,
 }
 
 fn default_version() -> u32 {
@@ -101,6 +112,7 @@ impl Default for Config {
             version: default_version(),
             vault: VaultConfig::default(),
             editor: EditorConfig::default(),
+            auto_update_links: default_auto_update_links(),
         }
     }
 }
@@ -111,6 +123,7 @@ pub struct ResolvedConfig {
     pub vault_dir_raw: String,
     pub vault_dir: PathBuf,
     pub editor: EditorConfig,
+    pub auto_update_links: bool,
 }
 
 pub struct AppState {
@@ -134,6 +147,7 @@ pub struct ConfigInfo {
     pub vault_dir_display: String,
     pub warning: Option<String>,
     pub editor: EditorConfigInfo,
+    pub auto_update_links: bool,
 }
 
 fn expand_tilde(path: &str, home: &str) -> String {
@@ -233,6 +247,7 @@ fn load_or_create_at(
             vault_dir_raw: config.vault.dir.clone(),
             vault_dir,
             editor,
+            auto_update_links: config.auto_update_links,
         },
         warning,
     ))
@@ -258,6 +273,7 @@ pub fn get_config_info(
             font_family: state.config.editor.font_family.clone(),
             line_height: state.config.editor.line_height,
         },
+        auto_update_links: state.config.auto_update_links,
     })
 }
 

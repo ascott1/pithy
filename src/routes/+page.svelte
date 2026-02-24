@@ -10,6 +10,9 @@
 		saveFile,
 		renameFile,
 		sanitizeFilename,
+		findWikilinkReferences,
+		updateWikilinkReferences,
+		type WikilinkReference,
 	} from "$lib/tauri/fs";
 	import {
 		readConfigFile,
@@ -18,6 +21,7 @@
 	} from "$lib/tauri/config";
 	import { AutoSaveController, type SaveState } from "$lib/autosave";
 	import { resolveWikilink } from "$lib/editor/wikilink";
+	import WikilinkUpdateDialog from "$lib/WikilinkUpdateDialog.svelte";
 	import { StreamLanguage } from "@codemirror/language";
 	import { toml } from "@codemirror/legacy-modes/mode/toml";
 
@@ -63,9 +67,20 @@
 	let fileEntries = $state<FileEntry[]>([]);
 	let recentPaths = $state<string[]>([]);
 
+	let autoUpdateLinks = $state(true);
+
 	let titleDraft = $state("");
 	let isRenaming = $state(false);
 	let renameError = $state<string | null>(null);
+
+	let wikilinkDialog = $state<{
+		oldName: string;
+		newName: string;
+		oldStem: string;
+		newStem: string;
+		newPath: string;
+		references: WikilinkReference[];
+	} | null>(null);
 	let editorApi: { focus: () => void; focusTitle: () => void } | null = null;
 
 	let openSeq = 0;
@@ -76,6 +91,7 @@
 		const info = await getConfigInfo();
 		if (info.warning) configWarning = info.warning;
 
+		autoUpdateLinks = info.autoUpdateLinks;
 		document.documentElement.style.setProperty("--editor-font-size", `${info.editor.fontSize}px`);
 		document.documentElement.style.setProperty("--editor-font-family", info.editor.fontFamily);
 		document.documentElement.style.setProperty("--editor-line-height", `${info.editor.lineHeight}`);
@@ -268,11 +284,45 @@
 			currentPath = newPath;
 			titleDraft = displayName(newPath);
 			autosave.setOpenedFile(newPath, doc);
+
+			// Update wikilinks referencing the old name
+			const oldStem = oldPath.replace(/\.md$/, "").split("/").pop()!;
+			const newStem = newPath.replace(/\.md$/, "").split("/").pop()!;
+			const refs = await findWikilinkReferences(oldStem);
+			if (refs.length > 0) {
+				if (autoUpdateLinks) {
+					const modified = await updateWikilinkReferences(oldStem, newStem);
+					if (currentPath && modified.includes(currentPath)) {
+						doc = await readFile(currentPath);
+						autosave.setOpenedFile(currentPath, doc);
+					}
+				} else {
+					wikilinkDialog = {
+						oldName: displayName(oldPath),
+						newName: displayName(newPath),
+						oldStem,
+						newStem,
+						newPath,
+						references: refs,
+					};
+				}
+			}
 		} catch (e) {
 			renameError = String(e);
 			titleDraft = displayName(oldPath);
 		} finally {
 			isRenaming = false;
+		}
+	}
+
+	async function handleWikilinkUpdate() {
+		if (!wikilinkDialog) return;
+		const { oldStem, newStem } = wikilinkDialog;
+		wikilinkDialog = null;
+		const modified = await updateWikilinkReferences(oldStem, newStem);
+		if (currentPath && modified.includes(currentPath)) {
+			doc = await readFile(currentPath);
+			autosave.setOpenedFile(currentPath, doc);
 		}
 	}
 
@@ -371,6 +421,16 @@
 		initialQuery={searchInitialQuery}
 		onselect={(path) => void openNote(path)}
 		onclose={() => (showSearch = false)}
+	/>
+{/if}
+
+{#if wikilinkDialog}
+	<WikilinkUpdateDialog
+		oldName={wikilinkDialog.oldName}
+		newName={wikilinkDialog.newName}
+		references={wikilinkDialog.references}
+		onupdate={() => void handleWikilinkUpdate()}
+		onskip={() => (wikilinkDialog = null)}
 	/>
 {/if}
 

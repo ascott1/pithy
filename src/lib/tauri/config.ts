@@ -12,6 +12,7 @@ export interface ConfigInfo {
 	vaultDirDisplay: string;
 	warning: string | null;
 	editor: EditorConfigInfo;
+	autoUpdateLinks: boolean;
 }
 
 export function getConfigInfo(): Promise<ConfigInfo> {

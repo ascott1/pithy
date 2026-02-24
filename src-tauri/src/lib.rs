@@ -73,6 +73,8 @@ pub fn run() {
             fs::save_file,
             fs::rename_file,
             fs::sanitize_filename,
+            fs::find_wikilink_references,
+            fs::update_wikilink_references,
             config::get_config_info,
             config::read_config_file,
             config::write_config_file,

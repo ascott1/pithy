@@ -19,3 +19,16 @@ export function renameFile(oldRelPath: string, newRelPath: string): Promise<void
 export function sanitizeFilename(name: string): Promise<string> {
 	return invoke<string>("sanitize_filename", { name });
 }
+
+export interface WikilinkReference {
+	relPath: string;
+	count: number;
+}
+
+export function findWikilinkReferences(oldStem: string): Promise<WikilinkReference[]> {
+	return invoke<WikilinkReference[]>("find_wikilink_references", { oldStem });
+}
+
+export function updateWikilinkReferences(oldStem: string, newStem: string): Promise<string[]> {
+	return invoke<string[]>("update_wikilink_references", { oldStem, newStem });
+}
