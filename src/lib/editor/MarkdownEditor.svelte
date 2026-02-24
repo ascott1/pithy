@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { EditorView, keymap } from "@codemirror/view";
-	import { EditorState, type Extension } from "@codemirror/state";
+	import { Compartment, EditorState, type Extension } from "@codemirror/state";
 	import {
 		defaultKeymap,
 		history,
@@ -27,6 +27,11 @@
 	} from "@codemirror/search";
 	import type { Panel } from "@codemirror/view";
 	import { inlineRendering } from "$lib/editor/inlineRendering";
+	import {
+		wikilinkExtension,
+		wikilinks,
+		type FileEntry,
+	} from "$lib/editor/wikilink";
 
 	interface Props {
 		doc: string;
@@ -43,6 +48,8 @@
 		ontitlechange?: (value: string) => void;
 		ontitleblur?: () => void;
 		ontitlekeydown?: (e: KeyboardEvent) => void;
+		fileStems?: FileEntry[];
+		onnavigate?: (target: string) => void;
 	}
 
 	let {
@@ -60,7 +67,11 @@
 		ontitlechange,
 		ontitleblur,
 		ontitlekeydown,
+		fileStems = [],
+		onnavigate,
 	}: Props = $props();
+
+	const wikilinkCompartment = new Compartment();
 
 	let container: HTMLDivElement;
 	let view: EditorView | undefined = $state();
@@ -350,10 +361,22 @@
 			extensions: [
 				EditorView.lineWrapping,
 				history(),
-				lang ?? markdown({ codeLanguages: languages }),
+				lang ??
+					markdown({
+						codeLanguages: languages,
+						extensions: [wikilinkExtension],
+					}),
 				...(lang
 					? [syntaxHighlighting(defaultHighlightStyle, { fallback: true })]
-					: [inlineRendering()]),
+					: [
+							inlineRendering(),
+							wikilinkCompartment.of(
+								wikilinks({
+									files: fileStems ?? [],
+									onNavigate: (t) => onnavigate?.(t),
+								}),
+							),
+						]),
 				search({ top: true, createPanel: createSearchPanel }),
 				keymap.of([
 					...defaultKeymap,
@@ -495,6 +518,19 @@
 				changes: { from: 0, to: view.state.doc.length, insert: doc },
 			});
 			applyingExternal = false;
+		}
+	});
+
+	$effect(() => {
+		if (view && !lang && fileStems) {
+			view.dispatch({
+				effects: wikilinkCompartment.reconfigure(
+					wikilinks({
+						files: fileStems,
+						onNavigate: (t) => onnavigate?.(t),
+					}),
+				),
+			});
 		}
 	});
 </script>

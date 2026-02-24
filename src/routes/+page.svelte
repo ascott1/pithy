@@ -17,6 +17,7 @@
 		getConfigInfo,
 	} from "$lib/tauri/config";
 	import { AutoSaveController, type SaveState } from "$lib/autosave";
+	import { resolveWikilink } from "$lib/editor/wikilink";
 	import { StreamLanguage } from "@codemirror/language";
 	import { toml } from "@codemirror/legacy-modes/mode/toml";
 
@@ -169,6 +170,16 @@
 		await saveFile(relPath, "");
 		fileEntries = [...fileEntries, { path: relPath, stem: displayName(relPath) }];
 		await openNote(relPath);
+	}
+
+	async function handleWikilinkNavigate(target: string) {
+		if (!target.trim()) return;
+		const resolved = resolveWikilink(target, fileEntries);
+		if (resolved) {
+			await openNote(resolved);
+		} else {
+			await createNote(target);
+		}
 	}
 
 	async function openConfig() {
@@ -330,6 +341,8 @@
 					ontitleblur={() => void commitTitleRename()}
 					ontitlekeydown={onTitleKeydown}
 					onready={(api) => (editorApi = api)}
+					fileStems={fileEntries}
+					onnavigate={(t) => void handleWikilinkNavigate(t)}
 				/>
 			{/key}
 		</div>

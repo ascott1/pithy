@@ -13,6 +13,7 @@ import {
 import { tags } from "@lezer/highlight";
 import type { Extension, Range, SelectionRange } from "@codemirror/state";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { wikilinkNavigateFacet } from "$lib/editor/wikilink";
 
 /**
  * Returns true if any selection range intersects [from, to].
@@ -76,6 +77,47 @@ function getLinkUrl(view: EditorView, pos: number): string | null {
 		} while (cur.nextSibling());
 	}
 
+	return null;
+}
+
+/**
+ * Resolves a document position to a wikilink target, if the position is inside
+ * a rendered (non-active) WikiLink node. Returns null if the cursor is inside
+ * the link (raw markdown visible).
+ */
+function getWikilinkTarget(view: EditorView, pos: number): string | null {
+	const { state } = view;
+	let node = syntaxTree(state).resolveInner(pos);
+
+	while (node && node.name !== "WikiLink") {
+		if (!node.parent) return null;
+		node = node.parent;
+	}
+	if (!node || node.name !== "WikiLink") return null;
+
+	if (selectionIntersects(node.from, node.to, state.selection.ranges)) {
+		return null;
+	}
+
+	// Extract text between the two WikiLinkMark children
+	const cur = node.cursor();
+	let markEnd = -1;
+	let markStart = -1;
+	if (cur.firstChild()) {
+		do {
+			if (cur.name === "WikiLinkMark") {
+				if (markEnd < 0) {
+					markEnd = cur.to; // end of opening [[
+				} else {
+					markStart = cur.from; // start of closing ]]
+				}
+			}
+		} while (cur.nextSibling());
+	}
+
+	if (markEnd >= 0 && markStart >= 0 && markEnd < markStart) {
+		return state.doc.sliceString(markEnd, markStart);
+	}
 	return null;
 }
 
@@ -237,6 +279,36 @@ function buildDecorations(view: EditorView): DecorationSet {
 					return;
 				}
 
+				// --- Wikilinks ---
+				if (node.name === "WikiLink") {
+					if (active) return;
+					const cur = node.node.cursor();
+					const marks: { from: number; to: number }[] = [];
+					if (cur.firstChild()) {
+						do {
+							if (cur.name === "WikiLinkMark") {
+								marks.push({ from: cur.from, to: cur.to });
+							}
+						} while (cur.nextSibling());
+					}
+					if (marks.length >= 2) {
+						for (const m of marks) {
+							decorations.push(
+								Decoration.replace({}).range(m.from, m.to),
+							);
+						}
+						decorations.push(
+							Decoration.mark({
+								class: "cm-md-wikilink",
+							}).range(
+								marks[0].to,
+								marks[marks.length - 1].from,
+							),
+						);
+					}
+					return;
+				}
+
 				// --- Inline code ---
 				if (node.name === "InlineCode") {
 					if (active) return false;
@@ -362,6 +434,17 @@ const inlineRenderingPlugin = ViewPlugin.fromClass(
 					y: event.clientY,
 				});
 				if (pos === null) return false;
+
+				// Wikilinks
+				const wikiTarget = getWikilinkTarget(view, pos);
+				if (wikiTarget) {
+					event.preventDefault();
+					const navigate = view.state.facet(wikilinkNavigateFacet);
+					navigate(wikiTarget);
+					return true;
+				}
+
+				// External links
 				const url = getLinkUrl(view, pos);
 				if (!url) return false;
 				event.preventDefault();
@@ -446,6 +529,23 @@ const inlineRenderingTheme = EditorView.baseTheme({
 	},
 
 	".cm-meta-held .cm-md-link:hover": {
+		cursor: "pointer",
+		textDecorationColor: "var(--link-color, var(--accent-color, #4078f2))",
+		backgroundColor:
+			"color-mix(in srgb, var(--link-color, var(--accent-color, #4078f2)) 8%, transparent)",
+	},
+
+	".cm-md-wikilink": {
+		color: "var(--link-color, var(--accent-color, #4078f2))",
+		textDecoration: "underline",
+		textDecorationColor: "transparent",
+		textUnderlineOffset: "2px",
+		textDecorationThickness: "1.5px",
+		borderRadius: "2px",
+		transition: "text-decoration-color 150ms ease, background-color 150ms ease",
+	},
+
+	".cm-meta-held .cm-md-wikilink:hover": {
 		cursor: "pointer",
 		textDecorationColor: "var(--link-color, var(--accent-color, #4078f2))",
 		backgroundColor:
