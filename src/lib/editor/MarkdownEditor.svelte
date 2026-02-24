@@ -99,6 +99,12 @@
 			lineHeight: "var(--editor-line-height)",
 		},
 		".cm-content": {
+			// Override CM6's flex-grow:2 which, in our column-flex scroller,
+			// caps height at the viewport instead of expanding to content.
+			// Without this, contentDOM.getBoundingClientRect() reports a
+			// small fixed box that scrolls offscreen, and CM6's
+			// visiblePixelRange() sees zero visible content.
+			flex: "0 0 auto",
 			boxSizing: "border-box",
 			maxWidth: "var(--content-max-width)",
 			width: "100%",

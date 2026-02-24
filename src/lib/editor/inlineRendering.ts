@@ -3,7 +3,6 @@ import {
 	type DecorationSet,
 	EditorView,
 	ViewPlugin,
-	type ViewUpdate,
 } from "@codemirror/view";
 import {
 	syntaxTree,
@@ -11,9 +10,42 @@ import {
 	syntaxHighlighting,
 } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
-import type { Extension, Range, SelectionRange } from "@codemirror/state";
+import { StateField, type EditorState, type Extension, type Range, type SelectionRange } from "@codemirror/state";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { wikilinkNavigateFacet } from "$lib/editor/wikilink";
+
+// --- Hoisted decoration constants (immutable, shared across all builds) ---
+const REPLACE = Decoration.replace({});
+const MARK_STRONG = Decoration.mark({ class: "cm-md-strong" });
+const MARK_EM = Decoration.mark({ class: "cm-md-em" });
+const MARK_LINK = Decoration.mark({ class: "cm-md-link" });
+const MARK_WIKILINK = Decoration.mark({ class: "cm-md-wikilink" });
+const MARK_INLINE_CODE = Decoration.mark({ class: "cm-md-inline-code" });
+const LINE_BLOCKQUOTE = Decoration.line({ class: "cm-md-blockquote" });
+const LINE_CODE_BLOCK = Decoration.line({ class: "cm-md-code-block" });
+const LINE_CODE_FENCE = Decoration.line({
+	class: "cm-md-code-block cm-md-code-fence",
+});
+const LINE_HR = Decoration.line({ class: "cm-md-hr-line" });
+const HEADING_LINE_DECOS: Decoration[] = [
+	Decoration.line({ class: "cm-md-heading" }), // unused index 0
+	Decoration.line({ class: "cm-md-heading cm-md-h1" }),
+	Decoration.line({ class: "cm-md-heading cm-md-h2" }),
+	Decoration.line({ class: "cm-md-heading cm-md-h3" }),
+	Decoration.line({ class: "cm-md-heading cm-md-h4" }),
+	Decoration.line({ class: "cm-md-heading cm-md-h5" }),
+	Decoration.line({ class: "cm-md-heading cm-md-h6" }),
+];
+
+// --- Micro-optimization: Set lookup instead of regex for heading names ---
+const HEADING_NAMES = new Set([
+	"ATXHeading1",
+	"ATXHeading2",
+	"ATXHeading3",
+	"ATXHeading4",
+	"ATXHeading5",
+	"ATXHeading6",
+]);
 
 /**
  * Returns true if any selection range intersects [from, to].
@@ -121,349 +153,338 @@ function getWikilinkTarget(view: EditorView, pos: number): string | null {
 	return null;
 }
 
-function buildDecorations(view: EditorView): DecorationSet {
-	if (view.composing) return Decoration.none;
+/**
+ * Scans from the start of `text` for blockquote prefix characters (`>` and space).
+ * Returns the length of the prefix, or 0 if not a blockquote line.
+ * Replaces regex /^((?:> ?)+)/ with a direct character scan.
+ */
+function blockquotePrefixLen(text: string): number {
+	let i = 0;
+	const len = text.length;
+	while (i < len) {
+		const ch = text.charCodeAt(i);
+		if (ch === 62 /* > */) {
+			i++;
+			if (i < len && text.charCodeAt(i) === 32 /* space */) {
+				i++;
+			}
+		} else {
+			break;
+		}
+	}
+	return i;
+}
 
+function buildDecorations(state: EditorState): DecorationSet {
 	const decorations: Range<Decoration>[] = [];
-	const { state } = view;
 	const selections = state.selection.ranges;
 	const doc = state.doc;
 
-	for (const { from, to } of view.visibleRanges) {
-		syntaxTree(state).iterate({
-			from,
-			to,
-			enter(node) {
-				const active = selectionIntersects(
-					node.from,
-					node.to,
-					selections,
-				);
+	// Iterate the full document so that decorations (especially line
+	// decorations that change font-size/padding) persist at all positions.
+	// CM6 accounts for StateField decorations in height estimation,
+	// preventing invisible text when scrolling long documents.
+	const tree = syntaxTree(state);
+	tree.iterate({
+		enter(node) {
+			const name = node.name;
+			const active = selectionIntersects(
+				node.from,
+				node.to,
+				selections,
+			);
 
-				// --- ATX Headings ---
-				if (/^ATXHeading[1-6]$/.test(node.name)) {
-					if (active) return;
-					const level = node.name.charCodeAt(10) - 48;
+			// --- ATX Headings ---
+			if (HEADING_NAMES.has(name)) {
+				if (active) return;
+				const level = name.charCodeAt(10) - 48;
+				const lineDeco = HEADING_LINE_DECOS[level];
 
-					const startLine = doc.lineAt(node.from);
-					const endLine = doc.lineAt(node.to);
-					for (let n = startLine.number; n <= endLine.number; n++) {
-						decorations.push(
-							Decoration.line({
-								class: `cm-md-heading cm-md-h${level}`,
-							}).range(doc.line(n).from),
-						);
-					}
-
-					const cur = node.node.cursor();
-					if (cur.firstChild()) {
-						do {
-							if (cur.name === "HeaderMark") {
-								let end = cur.to;
-								if (
-									end < doc.length &&
-									doc.sliceString(end, end + 1) === " "
-								) {
-									end++;
-								}
-								decorations.push(
-									Decoration.replace({}).range(
-										cur.from,
-										end,
-									),
-								);
-							}
-						} while (cur.nextSibling());
-					}
-					return;
+				const startLine = doc.lineAt(node.from);
+				const endLine = doc.lineAt(node.to);
+				for (let n = startLine.number; n <= endLine.number; n++) {
+					decorations.push(lineDeco.range(doc.line(n).from));
 				}
 
-				// --- Bold ---
-				if (node.name === "StrongEmphasis") {
-					if (active) return;
-					const cur = node.node.cursor();
-					const marks: { from: number; to: number }[] = [];
-					if (cur.firstChild()) {
-						do {
-							if (cur.name === "EmphasisMark") {
-								marks.push({ from: cur.from, to: cur.to });
+				const cur = node.node.cursor();
+				if (cur.firstChild()) {
+					do {
+						if (cur.name === "HeaderMark") {
+							let end = cur.to;
+							if (
+								end < doc.length &&
+								doc.sliceString(end, end + 1) === " "
+							) {
+								end++;
 							}
-						} while (cur.nextSibling());
-					}
-					if (marks.length >= 2) {
-						for (const m of marks) {
-							decorations.push(
-								Decoration.replace({}).range(m.from, m.to),
-							);
+							decorations.push(REPLACE.range(cur.from, end));
 						}
-						decorations.push(
-							Decoration.mark({ class: "cm-md-strong" }).range(
-								marks[0].to,
-								marks[marks.length - 1].from,
-							),
-						);
-					}
-					return;
+					} while (cur.nextSibling());
 				}
+				return;
+			}
 
-				// --- Italic ---
-				if (node.name === "Emphasis") {
-					if (active) return;
-					const cur = node.node.cursor();
-					const marks: { from: number; to: number }[] = [];
-					if (cur.firstChild()) {
-						do {
-							if (cur.name === "EmphasisMark") {
-								marks.push({ from: cur.from, to: cur.to });
-							}
-						} while (cur.nextSibling());
-					}
-					if (marks.length >= 2) {
-						for (const m of marks) {
-							decorations.push(
-								Decoration.replace({}).range(m.from, m.to),
-							);
+			// --- Bold ---
+			if (name === "StrongEmphasis") {
+				if (active) return;
+				const cur = node.node.cursor();
+				const marks: { from: number; to: number }[] = [];
+				if (cur.firstChild()) {
+					do {
+						if (cur.name === "EmphasisMark") {
+							marks.push({ from: cur.from, to: cur.to });
 						}
-						decorations.push(
-							Decoration.mark({ class: "cm-md-em" }).range(
-								marks[0].to,
-								marks[marks.length - 1].from,
-							),
-						);
-					}
-					return;
+					} while (cur.nextSibling());
 				}
-
-				// --- Links ---
-				if (node.name === "Link") {
-					if (active) return;
-					const cur = node.node.cursor();
-					let textStart = -1;
-					let textEnd = -1;
-					let seenFirstMark = false;
-
-					if (cur.firstChild()) {
-						do {
-							if (cur.name === "LinkMark") {
-								if (!seenFirstMark) {
-									textStart = cur.to;
-									seenFirstMark = true;
-								} else if (textEnd < 0) {
-									textEnd = cur.from;
-								}
-							}
-						} while (cur.nextSibling());
+				if (marks.length >= 2) {
+					for (const m of marks) {
+						decorations.push(REPLACE.range(m.from, m.to));
 					}
-
-					if (
-						textStart >= 0 &&
-						textEnd >= 0 &&
-						textStart < textEnd
-					) {
-						decorations.push(
-							Decoration.replace({}).range(
-								node.from,
-								textStart,
-							),
-						);
-						decorations.push(
-							Decoration.replace({}).range(textEnd, node.to),
-						);
-						decorations.push(
-							Decoration.mark({ class: "cm-md-link" }).range(
-								textStart,
-								textEnd,
-							),
-						);
-					}
-					return;
-				}
-
-				// --- Wikilinks ---
-				if (node.name === "WikiLink") {
-					if (active) return;
-					const cur = node.node.cursor();
-					const marks: { from: number; to: number }[] = [];
-					if (cur.firstChild()) {
-						do {
-							if (cur.name === "WikiLinkMark") {
-								marks.push({ from: cur.from, to: cur.to });
-							}
-						} while (cur.nextSibling());
-					}
-					if (marks.length >= 2) {
-						for (const m of marks) {
-							decorations.push(
-								Decoration.replace({}).range(m.from, m.to),
-							);
-						}
-						decorations.push(
-							Decoration.mark({
-								class: "cm-md-wikilink",
-							}).range(
-								marks[0].to,
-								marks[marks.length - 1].from,
-							),
-						);
-					}
-					return;
-				}
-
-				// --- Inline code ---
-				if (node.name === "InlineCode") {
-					if (active) return false;
-					const cur = node.node.cursor();
-					const marks: { from: number; to: number }[] = [];
-					if (cur.firstChild()) {
-						do {
-							if (cur.name === "CodeMark") {
-								marks.push({ from: cur.from, to: cur.to });
-							}
-						} while (cur.nextSibling());
-					}
-					if (marks.length >= 2) {
-						const contentFrom = marks[0].to;
-						const contentTo = marks[marks.length - 1].from;
-						if (contentFrom < contentTo) {
-							for (const m of marks) {
-								decorations.push(
-									Decoration.replace({}).range(
-										m.from,
-										m.to,
-									),
-								);
-							}
-							decorations.push(
-								Decoration.mark({
-									class: "cm-md-inline-code",
-								}).range(contentFrom, contentTo),
-							);
-						}
-					}
-					return false;
-				}
-
-				// --- Fenced code blocks ---
-				if (node.name === "FencedCode") {
-					if (active) return false;
-					const startLine = doc.lineAt(node.from);
-					const endLine = doc.lineAt(node.to);
-					for (let n = startLine.number; n <= endLine.number; n++) {
-						const isFence =
-							n === startLine.number || n === endLine.number;
-						decorations.push(
-							Decoration.line({
-								class: isFence
-									? "cm-md-code-block cm-md-code-fence"
-									: "cm-md-code-block",
-							}).range(doc.line(n).from),
-						);
-					}
-					return false;
-				}
-
-				// --- Blockquotes ---
-				if (node.name === "Blockquote") {
-					if (active) return;
-					const startLine = doc.lineAt(node.from);
-					const endLine = doc.lineAt(node.to);
-					for (let n = startLine.number; n <= endLine.number; n++) {
-						const line = doc.line(n);
-						decorations.push(
-							Decoration.line({
-								class: "cm-md-blockquote",
-							}).range(line.from),
-						);
-						const text = doc.sliceString(line.from, line.to);
-						const match = text.match(/^((?:> ?)+)/);
-						if (match) {
-							decorations.push(
-								Decoration.replace({}).range(
-									line.from,
-									line.from + match[1].length,
-								),
-							);
-						}
-					}
-					return;
-				}
-
-				// --- Horizontal rules ---
-				if (node.name === "HorizontalRule") {
-					if (active) return false;
 					decorations.push(
-						Decoration.line({ class: "cm-md-hr-line" }).range(
-							doc.lineAt(node.from).from,
+						MARK_STRONG.range(
+							marks[0].to,
+							marks[marks.length - 1].from,
 						),
 					);
-					decorations.push(
-						Decoration.replace({}).range(node.from, node.to),
-					);
-					return false;
 				}
-			},
-		});
-	}
+				return;
+			}
+
+			// --- Italic ---
+			if (name === "Emphasis") {
+				if (active) return;
+				const cur = node.node.cursor();
+				const marks: { from: number; to: number }[] = [];
+				if (cur.firstChild()) {
+					do {
+						if (cur.name === "EmphasisMark") {
+							marks.push({ from: cur.from, to: cur.to });
+						}
+					} while (cur.nextSibling());
+				}
+				if (marks.length >= 2) {
+					for (const m of marks) {
+						decorations.push(REPLACE.range(m.from, m.to));
+					}
+					decorations.push(
+						MARK_EM.range(
+							marks[0].to,
+							marks[marks.length - 1].from,
+						),
+					);
+				}
+				return;
+			}
+
+			// --- Links ---
+			if (name === "Link") {
+				if (active) return;
+				const cur = node.node.cursor();
+				let textStart = -1;
+				let textEnd = -1;
+				let seenFirstMark = false;
+
+				if (cur.firstChild()) {
+					do {
+						if (cur.name === "LinkMark") {
+							if (!seenFirstMark) {
+								textStart = cur.to;
+								seenFirstMark = true;
+							} else if (textEnd < 0) {
+								textEnd = cur.from;
+							}
+						}
+					} while (cur.nextSibling());
+				}
+
+				if (
+					textStart >= 0 &&
+					textEnd >= 0 &&
+					textStart < textEnd
+				) {
+					decorations.push(
+						REPLACE.range(node.from, textStart),
+					);
+					decorations.push(REPLACE.range(textEnd, node.to));
+					decorations.push(
+						MARK_LINK.range(textStart, textEnd),
+					);
+				}
+				return;
+			}
+
+			// --- Wikilinks ---
+			if (name === "WikiLink") {
+				if (active) return;
+				const cur = node.node.cursor();
+				const marks: { from: number; to: number }[] = [];
+				if (cur.firstChild()) {
+					do {
+						if (cur.name === "WikiLinkMark") {
+							marks.push({ from: cur.from, to: cur.to });
+						}
+					} while (cur.nextSibling());
+				}
+				if (marks.length >= 2) {
+					for (const m of marks) {
+						decorations.push(REPLACE.range(m.from, m.to));
+					}
+					decorations.push(
+						MARK_WIKILINK.range(
+							marks[0].to,
+							marks[marks.length - 1].from,
+						),
+					);
+				}
+				return;
+			}
+
+			// --- Inline code ---
+			if (name === "InlineCode") {
+				if (active) return false;
+				const cur = node.node.cursor();
+				const marks: { from: number; to: number }[] = [];
+				if (cur.firstChild()) {
+					do {
+						if (cur.name === "CodeMark") {
+							marks.push({ from: cur.from, to: cur.to });
+						}
+					} while (cur.nextSibling());
+				}
+				if (marks.length >= 2) {
+					const contentFrom = marks[0].to;
+					const contentTo = marks[marks.length - 1].from;
+					if (contentFrom < contentTo) {
+						for (const m of marks) {
+							decorations.push(REPLACE.range(m.from, m.to));
+						}
+						decorations.push(
+							MARK_INLINE_CODE.range(contentFrom, contentTo),
+						);
+					}
+				}
+				return false;
+			}
+
+			// --- Fenced code blocks ---
+			if (name === "FencedCode") {
+				if (active) return false;
+				const startLine = doc.lineAt(node.from);
+				const endLine = doc.lineAt(node.to);
+				for (let n = startLine.number; n <= endLine.number; n++) {
+					const isFence =
+						n === startLine.number || n === endLine.number;
+					decorations.push(
+						(isFence
+							? LINE_CODE_FENCE
+							: LINE_CODE_BLOCK
+						).range(doc.line(n).from),
+					);
+				}
+				return false;
+			}
+
+			// --- Blockquotes ---
+			if (name === "Blockquote") {
+				if (active) return;
+				const startLine = doc.lineAt(node.from);
+				const endLine = doc.lineAt(node.to);
+				for (let n = startLine.number; n <= endLine.number; n++) {
+					const line = doc.line(n);
+					decorations.push(LINE_BLOCKQUOTE.range(line.from));
+					const prefixLen = blockquotePrefixLen(
+						doc.sliceString(line.from, line.to),
+					);
+					if (prefixLen > 0) {
+						decorations.push(
+							REPLACE.range(line.from, line.from + prefixLen),
+						);
+					}
+				}
+				return;
+			}
+
+			// --- Horizontal rules ---
+			if (name === "HorizontalRule") {
+				if (active) return false;
+				decorations.push(
+					LINE_HR.range(doc.lineAt(node.from).from),
+				);
+				decorations.push(REPLACE.range(node.from, node.to));
+				return false;
+			}
+		},
+	});
 
 	return Decoration.set(decorations, true);
 }
 
+// StateField owns decorations so CM6 accounts for them at all document
+// positions in its height map.  This prevents invisible-text bugs caused
+// by line decorations (headings with larger font-size / padding) being
+// absent outside the viewport when a ViewPlugin provides them.
+const inlineDecoField = StateField.define<DecorationSet>({
+	create(state) {
+		return buildDecorations(state);
+	},
+	update(decos, tr) {
+		// Rebuild when content, selection, or the incrementally-parsed
+		// syntax tree changes.  Scroll is free — no rebuild needed.
+		if (
+			tr.docChanged ||
+			tr.selection ||
+			syntaxTree(tr.state) !== syntaxTree(tr.startState)
+		) {
+			return buildDecorations(tr.state);
+		}
+		return decos;
+	},
+	provide: (f) => EditorView.decorations.from(f),
+});
+
+// ViewPlugin retained only for event handlers (link clicks, meta-key tracking).
 const inlineRenderingPlugin = ViewPlugin.fromClass(
 	class {
-		decorations: DecorationSet;
-		constructor(view: EditorView) {
-			this.decorations = buildDecorations(view);
-		}
-		update(update: ViewUpdate) {
-			if (
-				update.docChanged ||
-				update.selectionSet ||
-				update.viewportChanged
-			) {
-				this.decorations = buildDecorations(update.view);
-			}
-		}
+		constructor(_view: EditorView) {}
 	},
 	{
-		decorations: (v) => v.decorations,
-		eventHandlers: {
-			mousedown(event: MouseEvent, view: EditorView) {
-				if (!event.metaKey || event.button !== 0) return false;
-				const pos = view.posAtCoords({
-					x: event.clientX,
-					y: event.clientY,
-				});
-				if (pos === null) return false;
+	eventHandlers: {
+		mousedown(event: MouseEvent, view: EditorView) {
+			if (!event.metaKey || event.button !== 0) return false;
+			const pos = view.posAtCoords({
+				x: event.clientX,
+				y: event.clientY,
+			});
+			if (pos === null) return false;
 
-				// Wikilinks
-				const wikiTarget = getWikilinkTarget(view, pos);
-				if (wikiTarget) {
-					event.preventDefault();
-					const navigate = view.state.facet(wikilinkNavigateFacet);
-					navigate(wikiTarget);
-					return true;
-				}
-
-				// External links
-				const url = getLinkUrl(view, pos);
-				if (!url) return false;
+			// Wikilinks
+			const wikiTarget = getWikilinkTarget(view, pos);
+			if (wikiTarget) {
 				event.preventDefault();
-				openUrl(url);
+				const navigate = view.state.facet(wikilinkNavigateFacet);
+				navigate(wikiTarget);
 				return true;
-			},
-			keydown(event: KeyboardEvent, view: EditorView) {
-				if (event.key === "Meta") {
-					view.contentDOM.classList.add("cm-meta-held");
-				}
-			},
-			keyup(event: KeyboardEvent, view: EditorView) {
-				if (event.key === "Meta") {
-					view.contentDOM.classList.remove("cm-meta-held");
-				}
-			},
+			}
+
+			// External links
+			const url = getLinkUrl(view, pos);
+			if (!url) return false;
+			event.preventDefault();
+			openUrl(url);
+			return true;
+		},
+		keydown(event: KeyboardEvent, view: EditorView) {
+			if (event.key === "Meta") {
+				view.contentDOM.classList.add("cm-meta-held");
+			}
+		},
+		keyup(event: KeyboardEvent, view: EditorView) {
+			if (event.key === "Meta") {
+				view.contentDOM.classList.remove("cm-meta-held");
+			}
 		},
 	},
-);
+});
 
 const inlineRenderingTheme = EditorView.baseTheme({
 	// Minor third scale (1.2): title 2.488 → H1 2.074 → H2 1.728 → H3 1.44 → H4 1.2 → H5 1 → H6 0.833
@@ -622,6 +643,7 @@ const highlightStyle = HighlightStyle.define([
 
 export function inlineRendering(): Extension {
 	return [
+		inlineDecoField,
 		inlineRenderingPlugin,
 		inlineRenderingTheme,
 		syntaxHighlighting(highlightStyle, { fallback: true }),
