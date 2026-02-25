@@ -4,9 +4,10 @@
 		backlinkCount: number;
 		showBacklinks: boolean;
 		showWordCount: boolean;
+		onbacklinksclick?: () => void;
 	}
 
-	let { wordCount, backlinkCount, showBacklinks, showWordCount }: Props = $props();
+	let { wordCount, backlinkCount, showBacklinks, showWordCount, onbacklinksclick }: Props = $props();
 </script>
 
 <div class="info-bar">
@@ -14,7 +15,15 @@
 		<span class="info-item">{wordCount} {wordCount === 1 ? "word" : "words"}</span>
 	{/if}
 	{#if showBacklinks}
-		<span class="info-item">{backlinkCount} {backlinkCount === 1 ? "backlink" : "backlinks"}</span>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<span
+			class="info-item backlinks"
+			class:clickable={backlinkCount > 0}
+			onclick={() => { if (backlinkCount > 0) onbacklinksclick?.(); }}
+		>
+			{backlinkCount} {backlinkCount === 1 ? "backlink" : "backlinks"}
+		</span>
 	{/if}
 </div>
 
@@ -28,7 +37,20 @@
 		font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
 		font-size: 0.6875rem;
 		color: var(--editor-text);
-		opacity: 0.4;
 		pointer-events: none;
+	}
+
+	.info-item {
+		opacity: 0.4;
+	}
+
+	.backlinks.clickable {
+		pointer-events: auto;
+		cursor: pointer;
+		transition: opacity 0.12s ease;
+	}
+
+	.backlinks.clickable:hover {
+		opacity: 0.6;
 	}
 </style>

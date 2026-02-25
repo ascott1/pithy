@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/svelte";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, cleanup, fireEvent } from "@testing-library/svelte";
 import InfoBar from "./InfoBar.svelte";
 
 afterEach(cleanup);
@@ -58,5 +58,33 @@ describe("InfoBar", () => {
 		});
 		expect(screen.getByText("0 words")).toBeTruthy();
 		expect(screen.getByText("0 backlinks")).toBeTruthy();
+	});
+
+	it("backlinks span is clickable when count > 0", async () => {
+		const onclick = vi.fn();
+		render(InfoBar, {
+			wordCount: 10,
+			backlinkCount: 3,
+			showBacklinks: true,
+			showWordCount: true,
+			onbacklinksclick: onclick,
+		});
+		const backlinksEl = screen.getByText("3 backlinks");
+		await fireEvent.click(backlinksEl);
+		expect(onclick).toHaveBeenCalled();
+	});
+
+	it("backlinks span does not fire callback when count is 0", async () => {
+		const onclick = vi.fn();
+		render(InfoBar, {
+			wordCount: 10,
+			backlinkCount: 0,
+			showBacklinks: true,
+			showWordCount: true,
+			onbacklinksclick: onclick,
+		});
+		const backlinksEl = screen.getByText("0 backlinks");
+		await fireEvent.click(backlinksEl);
+		expect(onclick).not.toHaveBeenCalled();
 	});
 });

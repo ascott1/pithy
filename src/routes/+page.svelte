@@ -5,6 +5,7 @@
 	import QuickSwitcher from "$lib/QuickSwitcher.svelte";
 	import SearchPanel from "$lib/SearchPanel.svelte";
 	import InfoBar from "$lib/InfoBar.svelte";
+	import BacklinksPopover from "$lib/BacklinksPopover.svelte";
 	import {
 		listFiles,
 		readFile,
@@ -74,6 +75,8 @@
 	let dailyConfig = $state<DailyConfigInfo>({ dir: "daily", format: "YYYY-MM-DD" });
 	let statusBarConfig = $state<StatusBarConfigInfo>({ show: true, showBacklinks: true, showWordCount: true });
 	let backlinkCount = $state(0);
+	let backlinkRefs = $state<WikilinkReference[]>([]);
+	let showBacklinksPopover = $state(false);
 	let wordCount = $derived(doc.trim() ? doc.trim().split(/\s+/).length : 0);
 
 	let titleDraft = $state("");
@@ -141,6 +144,7 @@
 		if (e.metaKey && e.key === "k") {
 			e.preventDefault();
 			showSearch = false;
+			showBacklinksPopover = false;
 			if (!showSwitcher) {
 				listFiles().then((files) => {
 					fileEntries = buildFileEntries(files);
@@ -153,6 +157,7 @@
 		} else if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "f") {
 			e.preventDefault();
 			showSwitcher = false;
+			showBacklinksPopover = false;
 			searchInitialQuery = "";
 			showSearch = !showSearch;
 		}
@@ -272,6 +277,8 @@
 		titleDraft = displayName(path);
 		renameError = null;
 		backlinkCount = 0;
+		backlinkRefs = [];
+		showBacklinksPopover = false;
 
 		const contents = await readFile(path);
 		if (seq !== openSeq) return;
@@ -282,6 +289,7 @@
 		const stem = path.replace(/\.md$/, "").split("/").pop()!;
 		const refs = await findWikilinkReferences(stem);
 		if (seq !== openSeq) return;
+		backlinkRefs = refs;
 		backlinkCount = refs.length;
 	}
 
@@ -333,8 +341,9 @@
 
 			// Re-fetch backlinks for new filename
 			const newStemForBacklinks = newPath.replace(/\.md$/, "").split("/").pop()!;
-			const backlinkRefs = await findWikilinkReferences(newStemForBacklinks);
-			backlinkCount = backlinkRefs.length;
+			const newRefs = await findWikilinkReferences(newStemForBacklinks);
+			backlinkRefs = newRefs;
+			backlinkCount = newRefs.length;
 
 			// Update wikilinks referencing the old name
 			const oldStem = oldPath.replace(/\.md$/, "").split("/").pop()!;
@@ -458,6 +467,15 @@
 		{backlinkCount}
 		showBacklinks={statusBarConfig.showBacklinks}
 		showWordCount={statusBarConfig.showWordCount}
+		onbacklinksclick={() => (showBacklinksPopover = true)}
+	/>
+{/if}
+
+{#if showBacklinksPopover && backlinkRefs.length > 0}
+	<BacklinksPopover
+		references={backlinkRefs}
+		onselect={(path) => { showBacklinksPopover = false; void openNote(path); }}
+		onclose={() => (showBacklinksPopover = false)}
 	/>
 {/if}
 
