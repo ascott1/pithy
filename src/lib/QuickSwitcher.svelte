@@ -300,13 +300,7 @@
     display: flex;
     justify-content: center;
     padding-top: 12vh;
-    background: rgba(0, 0, 0, 0.18);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .switcher-backdrop {
-      background: rgba(0, 0, 0, 0.45);
-    }
+    background: var(--backdrop-color, rgba(0, 0, 0, 0.18));
   }
 
   .switcher-panel {
@@ -372,12 +366,6 @@
 
   .switcher-item.selected {
     background: color-mix(in srgb, var(--editor-text) 7%, transparent);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .switcher-item.selected {
-      background: color-mix(in srgb, var(--editor-text) 10%, transparent);
-    }
   }
 
   .switcher-item:active {

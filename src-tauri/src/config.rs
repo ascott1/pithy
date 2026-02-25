@@ -33,12 +33,55 @@ dir = "~/Documents/Pithy"
 # Line height multiplier for editor text.
 # line-height = 1.7
 
+# [theme]
+# Color theme mode: "auto" follows OS light/dark, "light" or "dark" forces one.
+# mode = "auto"
+#
+# Theme names reference .css files in ~/.config/pithy/themes/
+# Built-in themes: "default-light", "default-dark"
+# light = "default-light"
+# dark = "default-dark"
+
 # [daily]
 # Subdirectory for daily notes (relative to vault root).
 # dir = "daily"
 #
 # Filename format for daily notes. Supports YYYY, MM, DD tokens.
 # format = "YYYY-MM-DD"
+"#;
+
+const DEFAULT_LIGHT_CSS: &str = r#":root {
+  --editor-bg: #ffffff;
+  --editor-text: #37352f;
+  --editor-cursor: #37352f;
+  --editor-selection: #d3e0f0;
+  --accent-color: #2383e2;
+  --dirty-color: #d9730d;
+  --link-color: #2383e2;
+  --error-color: #c4463a;
+  --code-bg: rgba(135, 131, 120, 0.1);
+  --code-block-bg: rgba(135, 131, 120, 0.04);
+  --border-color: rgba(55, 53, 47, 0.16);
+  --backdrop-color: rgba(15, 15, 15, 0.6);
+  --shadow-color: rgba(15, 15, 15, 0.1);
+}
+"#;
+
+const DEFAULT_DARK_CSS: &str = r#":root {
+  --editor-bg: #1e1c1a;
+  --editor-text: #d1ccc5;
+  --editor-cursor: #c8c2ba;
+  --editor-selection: #2e3d55;
+  --accent-color: #7b8fd4;
+  --dirty-color: #d4943a;
+  --link-color: #7b8fd4;
+  --error-color: #d4574b;
+  --code-bg: rgba(200, 195, 185, 0.08);
+  --code-block-bg: rgba(200, 195, 185, 0.04);
+  --border-color: rgba(200, 195, 185, 0.18);
+  --backdrop-color: rgba(0, 0, 0, 0.45);
+  --shadow-color: rgba(0, 0, 0, 0.35);
+}
 "#;
 
 fn default_auto_update_links() -> bool {
@@ -70,6 +113,39 @@ impl Default for DailyConfig {
     }
 }
 
+fn default_theme_mode() -> String {
+    "auto".into()
+}
+
+fn default_theme_light() -> String {
+    "default-light".into()
+}
+
+fn default_theme_dark() -> String {
+    "default-dark".into()
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ThemeConfig {
+    #[serde(default = "default_theme_mode")]
+    pub mode: String,
+    #[serde(default = "default_theme_light")]
+    pub light: String,
+    #[serde(default = "default_theme_dark")]
+    pub dark: String,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            mode: default_theme_mode(),
+            light: default_theme_light(),
+            dark: default_theme_dark(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
@@ -79,6 +155,8 @@ pub struct Config {
     pub vault: VaultConfig,
     #[serde(default)]
     pub editor: EditorConfig,
+    #[serde(default)]
+    pub theme: ThemeConfig,
     #[serde(default)]
     pub daily: DailyConfig,
     #[serde(default = "default_auto_update_links")]
@@ -146,6 +224,7 @@ impl Default for Config {
             version: default_version(),
             vault: VaultConfig::default(),
             editor: EditorConfig::default(),
+            theme: ThemeConfig::default(),
             daily: DailyConfig::default(),
             auto_update_links: default_auto_update_links(),
         }
@@ -158,6 +237,9 @@ pub struct ResolvedConfig {
     pub vault_dir_raw: String,
     pub vault_dir: PathBuf,
     pub editor: EditorConfig,
+    pub theme_mode: String,
+    pub theme_light_css: String,
+    pub theme_dark_css: String,
     pub daily: DailyConfig,
     pub auto_update_links: bool,
 }
@@ -177,6 +259,14 @@ pub struct EditorConfigInfo {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ThemeConfigInfo {
+    pub mode: String,
+    pub light_css: String,
+    pub dark_css: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DailyConfigInfo {
     pub dir: String,
     pub format: String,
@@ -190,6 +280,7 @@ pub struct ConfigInfo {
     pub vault_dir_display: String,
     pub warning: Option<String>,
     pub editor: EditorConfigInfo,
+    pub theme: ThemeConfigInfo,
     pub daily: DailyConfigInfo,
     pub auto_update_links: bool,
 }
@@ -239,6 +330,40 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Resolves a theme name to its CSS content.
+/// Built-in names ("default-light", "default-dark") return embedded constants.
+/// Other names are loaded from `~/.config/pithy/themes/{name}.css`.
+fn resolve_theme_css(
+    name: &str,
+    themes_dir: &Path,
+    warnings: &mut Vec<String>,
+    fallback_builtin: &str,
+) -> String {
+    match name {
+        "default-light" => return DEFAULT_LIGHT_CSS.to_string(),
+        "default-dark" => return DEFAULT_DARK_CSS.to_string(),
+        _ => {}
+    }
+
+    let stem = name.strip_suffix(".css").unwrap_or(name);
+    let file_path = themes_dir.join(format!("{}.css", stem));
+
+    match fs::read_to_string(&file_path) {
+        Ok(css) => css,
+        Err(_) => {
+            warnings.push(format!(
+                "Theme \"{}\" not found (looked for {}), using built-in",
+                name,
+                file_path.display()
+            ));
+            match fallback_builtin {
+                "default-dark" => DEFAULT_DARK_CSS.to_string(),
+                _ => DEFAULT_LIGHT_CSS.to_string(),
+            }
+        }
+    }
+}
+
 pub fn config_path() -> Result<PathBuf, String> {
     let home = std::env::var("HOME").map_err(|_| "HOME environment variable not set".to_string())?;
     Ok(PathBuf::from(home)
@@ -251,14 +376,14 @@ fn load_or_create_at(
     config_path: &Path,
     home: &str,
 ) -> Result<(ResolvedConfig, Option<String>), String> {
-    let mut warning: Option<String> = None;
+    let mut warnings: Vec<String> = Vec::new();
 
     let config = if config_path.exists() {
         let raw = fs::read_to_string(config_path).map_err(|e| e.to_string())?;
         match toml::from_str::<Config>(&raw) {
             Ok(c) => c,
             Err(e) => {
-                warning = Some(format!(
+                warnings.push(format!(
                     "Failed to parse config (using defaults): {}",
                     e
                 ));
@@ -285,12 +410,44 @@ fn load_or_create_at(
         editor.font_size = default_editor_font_size();
     }
 
+    // Resolve theme
+    let theme_mode = match config.theme.mode.as_str() {
+        "auto" | "light" | "dark" => config.theme.mode.clone(),
+        other => {
+            warnings.push(format!(
+                "Invalid theme mode \"{}\" (expected auto, light, or dark), using auto",
+                other
+            ));
+            "auto".to_string()
+        }
+    };
+
+    let themes_dir = config_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("themes");
+    let _ = fs::create_dir_all(&themes_dir);
+
+    let theme_light_css =
+        resolve_theme_css(&config.theme.light, &themes_dir, &mut warnings, "default-light");
+    let theme_dark_css =
+        resolve_theme_css(&config.theme.dark, &themes_dir, &mut warnings, "default-dark");
+
+    let warning = if warnings.is_empty() {
+        None
+    } else {
+        Some(warnings.join("; "))
+    };
+
     Ok((
         ResolvedConfig {
             config_path: config_path.to_path_buf(),
             vault_dir_raw: config.vault.dir.clone(),
             vault_dir,
             editor,
+            theme_mode,
+            theme_light_css,
+            theme_dark_css,
             daily: config.daily,
             auto_update_links: config.auto_update_links,
         },
@@ -317,6 +474,11 @@ pub fn get_config_info(
             font_size: state.config.editor.font_size,
             font_family: state.config.editor.font_family.clone(),
             line_height: state.config.editor.line_height,
+        },
+        theme: ThemeConfigInfo {
+            mode: state.config.theme_mode.clone(),
+            light_css: state.config.theme_light_css.clone(),
+            dark_css: state.config.theme_dark_css.clone(),
         },
         daily: DailyConfigInfo {
             dir: state.config.daily.dir.clone(),
@@ -524,5 +686,150 @@ dir = "notes"
 
         assert!(warning.is_none());
         assert!(cfg_path.exists());
+    }
+
+    // --- Theme tests ---
+
+    #[test]
+    fn resolve_builtin_light_theme() {
+        let dir = tempdir().unwrap();
+        let themes_dir = dir.path().join("themes");
+        let mut warnings = Vec::new();
+        let css = resolve_theme_css("default-light", &themes_dir, &mut warnings, "default-light");
+        assert!(css.contains("--editor-bg: #ffffff"));
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn resolve_builtin_dark_theme() {
+        let dir = tempdir().unwrap();
+        let themes_dir = dir.path().join("themes");
+        let mut warnings = Vec::new();
+        let css = resolve_theme_css("default-dark", &themes_dir, &mut warnings, "default-dark");
+        assert!(css.contains("--editor-bg: #1e1c1a"));
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn resolve_custom_theme_file() {
+        let dir = tempdir().unwrap();
+        let themes_dir = dir.path().join("themes");
+        fs::create_dir_all(&themes_dir).unwrap();
+        fs::write(themes_dir.join("github.css"), ":root { --editor-bg: #fff; }").unwrap();
+
+        let mut warnings = Vec::new();
+        let css = resolve_theme_css("github", &themes_dir, &mut warnings, "default-light");
+        assert!(css.contains("--editor-bg: #fff"));
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn resolve_custom_theme_with_css_extension() {
+        let dir = tempdir().unwrap();
+        let themes_dir = dir.path().join("themes");
+        fs::create_dir_all(&themes_dir).unwrap();
+        fs::write(themes_dir.join("github.css"), ":root { --editor-bg: #fff; }").unwrap();
+
+        let mut warnings = Vec::new();
+        let css = resolve_theme_css("github.css", &themes_dir, &mut warnings, "default-light");
+        assert!(css.contains("--editor-bg: #fff"));
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn resolve_missing_theme_falls_back_with_warning() {
+        let dir = tempdir().unwrap();
+        let themes_dir = dir.path().join("themes");
+        fs::create_dir_all(&themes_dir).unwrap();
+
+        let mut warnings = Vec::new();
+        let css = resolve_theme_css("nonexistent", &themes_dir, &mut warnings, "default-dark");
+        assert!(css.contains("--editor-bg: #1e1c1a")); // fell back to dark
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("not found"));
+    }
+
+    #[test]
+    fn invalid_theme_mode_warns_and_defaults_to_auto() {
+        let dir = tempdir().unwrap();
+        let cfg_path = dir.path().join("config.toml");
+
+        let custom = r#"
+version = 1
+
+[vault]
+dir = "~/Notes"
+
+[theme]
+mode = "invalid"
+"#;
+        fs::write(&cfg_path, custom).unwrap();
+
+        let (resolved, warning) =
+            load_or_create_at(&cfg_path, "/home/user").unwrap();
+
+        assert_eq!(resolved.theme_mode, "auto");
+        assert!(warning.is_some());
+        assert!(warning.unwrap().contains("Invalid theme mode"));
+    }
+
+    #[test]
+    fn default_config_has_default_themes() {
+        let dir = tempdir().unwrap();
+        let cfg_path = dir.path().join("config.toml");
+
+        let (resolved, warning) =
+            load_or_create_at(&cfg_path, "/Users/test").unwrap();
+
+        assert!(warning.is_none());
+        assert_eq!(resolved.theme_mode, "auto");
+        assert!(resolved.theme_light_css.contains("--editor-bg: #ffffff"));
+        assert!(resolved.theme_dark_css.contains("--editor-bg: #1e1c1a"));
+    }
+
+    #[test]
+    fn themes_directory_created_on_load() {
+        let dir = tempdir().unwrap();
+        let cfg_path = dir.path().join("config.toml");
+
+        load_or_create_at(&cfg_path, "/Users/test").unwrap();
+
+        let themes_dir = dir.path().join("themes");
+        assert!(themes_dir.exists());
+        assert!(themes_dir.is_dir());
+    }
+
+    #[test]
+    fn custom_theme_in_config() {
+        let dir = tempdir().unwrap();
+        let cfg_path = dir.path().join("config.toml");
+        let themes_dir = dir.path().join("themes");
+        fs::create_dir_all(&themes_dir).unwrap();
+        fs::write(themes_dir.join("solarized.css"), ":root { --editor-bg: #fdf6e3; }").unwrap();
+
+        let custom = r#"
+version = 1
+
+[vault]
+dir = "~/Notes"
+
+[theme]
+mode = "light"
+light = "solarized"
+"#;
+        fs::write(&cfg_path, custom).unwrap();
+
+        let (resolved, warning) =
+            load_or_create_at(&cfg_path, "/home/user").unwrap();
+
+        assert!(warning.is_none());
+        assert_eq!(resolved.theme_mode, "light");
+        assert!(resolved.theme_light_css.contains("--editor-bg: #fdf6e3"));
+    }
+
+    #[test]
+    fn default_template_contains_theme_section() {
+        assert!(DEFAULT_TEMPLATE.contains("[theme]"));
+        assert!(DEFAULT_TEMPLATE.contains("mode = \"auto\""));
     }
 }

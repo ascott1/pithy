@@ -6,6 +6,12 @@ export interface EditorConfigInfo {
 	lineHeight: number;
 }
 
+export interface ThemeConfigInfo {
+	mode: string;
+	lightCss: string;
+	darkCss: string;
+}
+
 export interface DailyConfigInfo {
 	dir: string;
 	format: string;
@@ -17,6 +23,7 @@ export interface ConfigInfo {
 	vaultDirDisplay: string;
 	warning: string | null;
 	editor: EditorConfigInfo;
+	theme: ThemeConfigInfo;
 	daily: DailyConfigInfo;
 	autoUpdateLinks: boolean;
 }

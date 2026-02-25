@@ -59,13 +59,7 @@
 		display: flex;
 		justify-content: center;
 		padding-top: 12vh;
-		background: rgba(0, 0, 0, 0.18);
-	}
-
-	@media (prefers-color-scheme: dark) {
-		.dialog-backdrop {
-			background: rgba(0, 0, 0, 0.45);
-		}
+		background: var(--backdrop-color, rgba(0, 0, 0, 0.18));
 	}
 
 	.dialog-panel {

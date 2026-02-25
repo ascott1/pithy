@@ -180,13 +180,7 @@
 		display: flex;
 		justify-content: center;
 		padding-top: 10vh;
-		background: rgba(0, 0, 0, 0.18);
-	}
-
-	@media (prefers-color-scheme: dark) {
-		.search-backdrop {
-			background: rgba(0, 0, 0, 0.45);
-		}
+		background: var(--backdrop-color, rgba(0, 0, 0, 0.18));
 	}
 
 	.search-panel {
@@ -247,9 +241,9 @@
 	}
 
 	.search-status.error {
-		color: #d14343;
+		color: var(--error-color, #d14343);
 		background: none;
-		border: 1px solid color-mix(in srgb, #d14343 50%, transparent);
+		border: 1px solid color-mix(in srgb, var(--error-color, #d14343) 50%, transparent);
 		border-radius: 5px;
 		padding: 3px 10px;
 		cursor: pointer;
@@ -293,12 +287,6 @@
 
 	.search-hit.selected {
 		background: color-mix(in srgb, var(--editor-text) 7%, transparent);
-	}
-
-	@media (prefers-color-scheme: dark) {
-		.search-hit.selected {
-			background: color-mix(in srgb, var(--editor-text) 10%, transparent);
-		}
 	}
 
 	.search-hit:active {

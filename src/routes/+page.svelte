@@ -100,6 +100,20 @@
 		document.documentElement.style.setProperty("--editor-font-family", info.editor.fontFamily);
 		document.documentElement.style.setProperty("--editor-line-height", `${info.editor.lineHeight}`);
 
+		// Inject theme CSS
+		const themeStyle = document.createElement("style");
+		themeStyle.id = "pithy-theme";
+		if (info.theme.mode === "light") {
+			themeStyle.textContent = info.theme.lightCss;
+		} else if (info.theme.mode === "dark") {
+			themeStyle.textContent = info.theme.darkCss;
+		} else {
+			themeStyle.textContent =
+				`@media (prefers-color-scheme: light) { ${info.theme.lightCss} }\n` +
+				`@media (prefers-color-scheme: dark) { ${info.theme.darkCss} }`;
+		}
+		document.head.appendChild(themeStyle);
+
 		unlistenConfig = await listen("open-config", () => {
 			void openConfig();
 		});
@@ -458,25 +472,22 @@
 <style>
 	:global(:root) {
 		--editor-bg: #ffffff;
-		--editor-text: #1a1a1a;
-		--editor-cursor: #333;
-		--editor-selection: #d7e4f2;
-		--accent-color: #4078f2;
-		--dirty-color: #f59e0b;
+		--editor-text: #37352f;
+		--editor-cursor: #37352f;
+		--editor-selection: #d3e0f0;
+		--accent-color: #2383e2;
+		--dirty-color: #d9730d;
+		--link-color: #2383e2;
+		--error-color: #c4463a;
+		--code-bg: rgba(135, 131, 120, 0.1);
+		--code-block-bg: rgba(135, 131, 120, 0.04);
+		--border-color: rgba(55, 53, 47, 0.16);
+		--backdrop-color: rgba(15, 15, 15, 0.6);
+		--shadow-color: rgba(15, 15, 15, 0.1);
 		--content-max-width: 680px;
 		--editor-font-size: 15px;
 		--editor-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
 		--editor-line-height: 1.7;
-	}
-
-	@media (prefers-color-scheme: dark) {
-		:global(:root) {
-			--editor-bg: #1a1a1e;
-			--editor-text: #d4d4d4;
-			--editor-cursor: #c6c6c6;
-			--editor-selection: #264f78;
-			--accent-color: #6ab0f3;
-		}
 	}
 
 	.app {

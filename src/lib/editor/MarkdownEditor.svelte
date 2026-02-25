@@ -614,7 +614,7 @@
 		margin: 0 auto;
 		padding: 0 2em 0.5em;
 		font-size: 0.8em;
-		color: #d14343;
+		color: var(--error-color, #d14343);
 	}
 
 	/* Custom search bar */

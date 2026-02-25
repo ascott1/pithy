@@ -577,13 +577,13 @@ const inlineRenderingTheme = EditorView.baseTheme({
 		fontFamily:
 			"'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace",
 		fontSize: "0.88em",
-		backgroundColor: "rgba(128, 128, 128, 0.12)",
+		backgroundColor: "var(--code-bg, rgba(128, 128, 128, 0.12))",
 		borderRadius: "3px",
 		padding: "1px 4px",
 	},
 
 	".cm-md-code-block": {
-		backgroundColor: "rgba(128, 128, 128, 0.06)",
+		backgroundColor: "var(--code-block-bg, rgba(128, 128, 128, 0.06))",
 	},
 	".cm-md-code-fence": {
 		opacity: "0.35",
@@ -591,13 +591,13 @@ const inlineRenderingTheme = EditorView.baseTheme({
 	},
 
 	".cm-md-blockquote": {
-		borderLeft: "3px solid rgba(128, 128, 128, 0.35)",
+		borderLeft: "3px solid var(--border-color, rgba(128, 128, 128, 0.35))",
 		paddingLeft: "1em !important",
 		opacity: "0.85",
 	},
 
 	".cm-md-hr-line": {
-		borderBottom: "1px solid rgba(128, 128, 128, 0.25)",
+		borderBottom: "1px solid var(--border-color, rgba(128, 128, 128, 0.25))",
 		lineHeight: "0 !important",
 		padding: "0.75em 0 !important",
 	},
@@ -609,7 +609,7 @@ const inlineRenderingTheme = EditorView.baseTheme({
  */
 const highlightStyle = HighlightStyle.define([
 	{ tag: tags.meta, color: "#404740" },
-	{ tag: tags.link, color: "#219" },
+	{ tag: tags.link, color: "var(--link-color, var(--accent-color, #4078f2))" },
 	{ tag: tags.heading, fontWeight: "bold" },
 	{ tag: tags.emphasis, fontStyle: "italic" },
 	{ tag: tags.strong, fontWeight: "bold" },
