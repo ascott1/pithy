@@ -32,10 +32,42 @@ dir = "~/Documents/Pithy"
 
 # Line height multiplier for editor text.
 # line-height = 1.7
+
+# [daily]
+# Subdirectory for daily notes (relative to vault root).
+# dir = "daily"
+#
+# Filename format for daily notes. Supports YYYY, MM, DD tokens.
+# format = "YYYY-MM-DD"
 "#;
 
 fn default_auto_update_links() -> bool {
     true
+}
+
+fn default_daily_dir() -> String {
+    "daily".into()
+}
+
+fn default_daily_format() -> String {
+    "YYYY-MM-DD".into()
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DailyConfig {
+    #[serde(default = "default_daily_dir")]
+    pub dir: String,
+    #[serde(default = "default_daily_format")]
+    pub format: String,
+}
+
+impl Default for DailyConfig {
+    fn default() -> Self {
+        Self {
+            dir: default_daily_dir(),
+            format: default_daily_format(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -47,6 +79,8 @@ pub struct Config {
     pub vault: VaultConfig,
     #[serde(default)]
     pub editor: EditorConfig,
+    #[serde(default)]
+    pub daily: DailyConfig,
     #[serde(default = "default_auto_update_links")]
     pub auto_update_links: bool,
 }
@@ -112,6 +146,7 @@ impl Default for Config {
             version: default_version(),
             vault: VaultConfig::default(),
             editor: EditorConfig::default(),
+            daily: DailyConfig::default(),
             auto_update_links: default_auto_update_links(),
         }
     }
@@ -123,6 +158,7 @@ pub struct ResolvedConfig {
     pub vault_dir_raw: String,
     pub vault_dir: PathBuf,
     pub editor: EditorConfig,
+    pub daily: DailyConfig,
     pub auto_update_links: bool,
 }
 
@@ -141,12 +177,20 @@ pub struct EditorConfigInfo {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DailyConfigInfo {
+    pub dir: String,
+    pub format: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConfigInfo {
     pub config_path: String,
     pub vault_dir: String,
     pub vault_dir_display: String,
     pub warning: Option<String>,
     pub editor: EditorConfigInfo,
+    pub daily: DailyConfigInfo,
     pub auto_update_links: bool,
 }
 
@@ -247,6 +291,7 @@ fn load_or_create_at(
             vault_dir_raw: config.vault.dir.clone(),
             vault_dir,
             editor,
+            daily: config.daily,
             auto_update_links: config.auto_update_links,
         },
         warning,
@@ -272,6 +317,10 @@ pub fn get_config_info(
             font_size: state.config.editor.font_size,
             font_family: state.config.editor.font_family.clone(),
             line_height: state.config.editor.line_height,
+        },
+        daily: DailyConfigInfo {
+            dir: state.config.daily.dir.clone(),
+            format: state.config.daily.format.clone(),
         },
         auto_update_links: state.config.auto_update_links,
     })
@@ -408,6 +457,61 @@ dir = "relative/path"
         let result = load_or_create_at(&cfg_path, "/Users/test");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("absolute path"));
+    }
+
+    #[test]
+    fn daily_config_defaults() {
+        let daily = DailyConfig::default();
+        assert_eq!(daily.dir, "daily");
+        assert_eq!(daily.format, "YYYY-MM-DD");
+    }
+
+    #[test]
+    fn daily_config_custom_values() {
+        let dir = tempdir().unwrap();
+        let cfg_path = dir.path().join("config.toml");
+
+        let custom = r#"
+version = 1
+
+[vault]
+dir = "~/Notes"
+
+[daily]
+dir = "journal"
+format = "DD-MM-YYYY"
+"#;
+        fs::write(&cfg_path, custom).unwrap();
+
+        let (resolved, warning) =
+            load_or_create_at(&cfg_path, "/home/user").unwrap();
+
+        assert!(warning.is_none());
+        assert_eq!(resolved.daily.dir, "journal");
+        assert_eq!(resolved.daily.format, "DD-MM-YYYY");
+    }
+
+    #[test]
+    fn daily_config_partial_uses_defaults() {
+        let dir = tempdir().unwrap();
+        let cfg_path = dir.path().join("config.toml");
+
+        let custom = r#"
+version = 1
+
+[vault]
+dir = "~/Notes"
+
+[daily]
+dir = "notes"
+"#;
+        fs::write(&cfg_path, custom).unwrap();
+
+        let (resolved, _) =
+            load_or_create_at(&cfg_path, "/home/user").unwrap();
+
+        assert_eq!(resolved.daily.dir, "notes");
+        assert_eq!(resolved.daily.format, "YYYY-MM-DD");
     }
 
     #[test]

@@ -6,12 +6,18 @@ export interface EditorConfigInfo {
 	lineHeight: number;
 }
 
+export interface DailyConfigInfo {
+	dir: string;
+	format: string;
+}
+
 export interface ConfigInfo {
 	configPath: string;
 	vaultDir: string;
 	vaultDirDisplay: string;
 	warning: string | null;
 	editor: EditorConfigInfo;
+	daily: DailyConfigInfo;
 	autoUpdateLinks: boolean;
 }
 

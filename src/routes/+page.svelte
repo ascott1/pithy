@@ -21,7 +21,9 @@
 	} from "$lib/tauri/config";
 	import { AutoSaveController, type SaveState } from "$lib/autosave";
 	import { resolveWikilink } from "$lib/editor/wikilink";
+	import { formatDailyName } from "$lib/daily";
 	import WikilinkUpdateDialog from "$lib/WikilinkUpdateDialog.svelte";
+	import type { DailyConfigInfo } from "$lib/tauri/config";
 	import { StreamLanguage } from "@codemirror/language";
 	import { toml } from "@codemirror/legacy-modes/mode/toml";
 
@@ -68,6 +70,7 @@
 	let recentPaths = $state<string[]>([]);
 
 	let autoUpdateLinks = $state(true);
+	let dailyConfig = $state<DailyConfigInfo>({ dir: "daily", format: "YYYY-MM-DD" });
 
 	let titleDraft = $state("");
 	let isRenaming = $state(false);
@@ -92,6 +95,7 @@
 		if (info.warning) configWarning = info.warning;
 
 		autoUpdateLinks = info.autoUpdateLinks;
+		dailyConfig = info.daily;
 		document.documentElement.style.setProperty("--editor-font-size", `${info.editor.fontSize}px`);
 		document.documentElement.style.setProperty("--editor-font-family", info.editor.fontFamily);
 		document.documentElement.style.setProperty("--editor-line-height", `${info.editor.lineHeight}`);
@@ -124,6 +128,9 @@
 				});
 			}
 			showSwitcher = !showSwitcher;
+		} else if (e.metaKey && e.key === "d") {
+			e.preventDefault();
+			void openOrCreateDailyNote();
 		} else if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "f") {
 			e.preventDefault();
 			showSwitcher = false;
@@ -177,6 +184,20 @@
 	async function createNote(name: string) {
 		const sanitized = await sanitizeFilename(name);
 		const relPath = `${sanitized}.md`;
+
+		if (fileEntries.some((f) => f.path === relPath)) {
+			await openNote(relPath);
+			return;
+		}
+
+		await saveFile(relPath, "");
+		fileEntries = [...fileEntries, { path: relPath, stem: displayName(relPath) }];
+		await openNote(relPath);
+	}
+
+	async function openOrCreateDailyNote() {
+		const name = formatDailyName(dailyConfig.format);
+		const relPath = `${dailyConfig.dir}/${name}.md`;
 
 		if (fileEntries.some((f) => f.path === relPath)) {
 			await openNote(relPath);
