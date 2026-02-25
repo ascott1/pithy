@@ -4,6 +4,7 @@
 	import MarkdownEditor from "$lib/editor/MarkdownEditor.svelte";
 	import QuickSwitcher from "$lib/QuickSwitcher.svelte";
 	import SearchPanel from "$lib/SearchPanel.svelte";
+	import InfoBar from "$lib/InfoBar.svelte";
 	import {
 		listFiles,
 		readFile,
@@ -23,7 +24,7 @@
 	import { resolveWikilink } from "$lib/editor/wikilink";
 	import { formatDailyName } from "$lib/daily";
 	import WikilinkUpdateDialog from "$lib/WikilinkUpdateDialog.svelte";
-	import type { DailyConfigInfo } from "$lib/tauri/config";
+	import type { DailyConfigInfo, StatusBarConfigInfo } from "$lib/tauri/config";
 	import { StreamLanguage } from "@codemirror/language";
 	import { toml } from "@codemirror/legacy-modes/mode/toml";
 
@@ -71,6 +72,9 @@
 
 	let autoUpdateLinks = $state(true);
 	let dailyConfig = $state<DailyConfigInfo>({ dir: "daily", format: "YYYY-MM-DD" });
+	let statusBarConfig = $state<StatusBarConfigInfo>({ show: true, showBacklinks: true, showWordCount: true });
+	let backlinkCount = $state(0);
+	let wordCount = $derived(doc.trim() ? doc.trim().split(/\s+/).length : 0);
 
 	let titleDraft = $state("");
 	let isRenaming = $state(false);
@@ -96,6 +100,7 @@
 
 		autoUpdateLinks = info.autoUpdateLinks;
 		dailyConfig = info.daily;
+		statusBarConfig = info.statusBar;
 		document.documentElement.style.setProperty("--editor-font-size", `${info.editor.fontSize}px`);
 		document.documentElement.style.setProperty("--editor-font-family", info.editor.fontFamily);
 		document.documentElement.style.setProperty("--editor-line-height", `${info.editor.lineHeight}`);
@@ -266,12 +271,18 @@
 		currentPath = path;
 		titleDraft = displayName(path);
 		renameError = null;
+		backlinkCount = 0;
 
 		const contents = await readFile(path);
 		if (seq !== openSeq) return;
 
 		doc = contents;
 		autosave.setOpenedFile(path, contents);
+
+		const stem = path.replace(/\.md$/, "").split("/").pop()!;
+		const refs = await findWikilinkReferences(stem);
+		if (seq !== openSeq) return;
+		backlinkCount = refs.length;
 	}
 
 	function onDocChange(d: string) {
@@ -319,6 +330,11 @@
 			currentPath = newPath;
 			titleDraft = displayName(newPath);
 			autosave.setOpenedFile(newPath, doc);
+
+			// Re-fetch backlinks for new filename
+			const newStemForBacklinks = newPath.replace(/\.md$/, "").split("/").pop()!;
+			const backlinkRefs = await findWikilinkReferences(newStemForBacklinks);
+			backlinkCount = backlinkRefs.length;
 
 			// Update wikilinks referencing the old name
 			const oldStem = oldPath.replace(/\.md$/, "").split("/").pop()!;
@@ -435,6 +451,15 @@
 		<div class="empty">No file open</div>
 	{/if}
 </div>
+
+{#if mode === "vault" && currentPath && statusBarConfig.show}
+	<InfoBar
+		{wordCount}
+		{backlinkCount}
+		showBacklinks={statusBarConfig.showBacklinks}
+		showWordCount={statusBarConfig.showWordCount}
+	/>
+{/if}
 
 {#if showSwitcher}
 	<QuickSwitcher

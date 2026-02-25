@@ -17,6 +17,12 @@ export interface DailyConfigInfo {
 	format: string;
 }
 
+export interface StatusBarConfigInfo {
+	show: boolean;
+	showBacklinks: boolean;
+	showWordCount: boolean;
+}
+
 export interface ConfigInfo {
 	configPath: string;
 	vaultDir: string;
@@ -26,6 +32,7 @@ export interface ConfigInfo {
 	theme: ThemeConfigInfo;
 	daily: DailyConfigInfo;
 	autoUpdateLinks: boolean;
+	statusBar: StatusBarConfigInfo;
 }
 
 export function getConfigInfo(): Promise<ConfigInfo> {

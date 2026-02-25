@@ -48,6 +48,16 @@ dir = "~/Documents/Pithy"
 #
 # Filename format for daily notes. Supports YYYY, MM, DD tokens.
 # format = "YYYY-MM-DD"
+
+# [status-bar]
+# Show the info bar below the editor.
+# show = true
+#
+# Show backlinks count in the info bar.
+# show-backlinks = true
+#
+# Show word count in the info bar.
+# show-word-count = true
 "#;
 
 const DEFAULT_LIGHT_CSS: &str = r#":root {
@@ -83,6 +93,31 @@ const DEFAULT_DARK_CSS: &str = r#":root {
   --shadow-color: rgba(0, 0, 0, 0.35);
 }
 "#;
+
+fn default_status_bar_bool() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct StatusBarConfig {
+    #[serde(default = "default_status_bar_bool")]
+    pub show: bool,
+    #[serde(default = "default_status_bar_bool")]
+    pub show_backlinks: bool,
+    #[serde(default = "default_status_bar_bool")]
+    pub show_word_count: bool,
+}
+
+impl Default for StatusBarConfig {
+    fn default() -> Self {
+        Self {
+            show: true,
+            show_backlinks: true,
+            show_word_count: true,
+        }
+    }
+}
 
 fn default_auto_update_links() -> bool {
     true
@@ -161,6 +196,8 @@ pub struct Config {
     pub daily: DailyConfig,
     #[serde(default = "default_auto_update_links")]
     pub auto_update_links: bool,
+    #[serde(default)]
+    pub status_bar: StatusBarConfig,
 }
 
 fn default_version() -> u32 {
@@ -227,6 +264,7 @@ impl Default for Config {
             theme: ThemeConfig::default(),
             daily: DailyConfig::default(),
             auto_update_links: default_auto_update_links(),
+            status_bar: StatusBarConfig::default(),
         }
     }
 }
@@ -242,6 +280,7 @@ pub struct ResolvedConfig {
     pub theme_dark_css: String,
     pub daily: DailyConfig,
     pub auto_update_links: bool,
+    pub status_bar: StatusBarConfig,
 }
 
 pub struct AppState {
@@ -274,6 +313,14 @@ pub struct DailyConfigInfo {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StatusBarConfigInfo {
+    pub show: bool,
+    pub show_backlinks: bool,
+    pub show_word_count: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConfigInfo {
     pub config_path: String,
     pub vault_dir: String,
@@ -283,6 +330,7 @@ pub struct ConfigInfo {
     pub theme: ThemeConfigInfo,
     pub daily: DailyConfigInfo,
     pub auto_update_links: bool,
+    pub status_bar: StatusBarConfigInfo,
 }
 
 fn expand_tilde(path: &str, home: &str) -> String {
@@ -450,6 +498,7 @@ fn load_or_create_at(
             theme_dark_css,
             daily: config.daily,
             auto_update_links: config.auto_update_links,
+            status_bar: config.status_bar,
         },
         warning,
     ))
@@ -485,6 +534,11 @@ pub fn get_config_info(
             format: state.config.daily.format.clone(),
         },
         auto_update_links: state.config.auto_update_links,
+        status_bar: StatusBarConfigInfo {
+            show: state.config.status_bar.show,
+            show_backlinks: state.config.status_bar.show_backlinks,
+            show_word_count: state.config.status_bar.show_word_count,
+        },
     })
 }
 
@@ -831,5 +885,72 @@ light = "solarized"
     fn default_template_contains_theme_section() {
         assert!(DEFAULT_TEMPLATE.contains("[theme]"));
         assert!(DEFAULT_TEMPLATE.contains("mode = \"auto\""));
+    }
+
+    // --- Status bar tests ---
+
+    #[test]
+    fn status_bar_defaults_all_true() {
+        let sb = StatusBarConfig::default();
+        assert!(sb.show);
+        assert!(sb.show_backlinks);
+        assert!(sb.show_word_count);
+    }
+
+    #[test]
+    fn status_bar_custom_values() {
+        let dir = tempdir().unwrap();
+        let cfg_path = dir.path().join("config.toml");
+
+        let custom = r#"
+version = 1
+
+[vault]
+dir = "~/Notes"
+
+[status-bar]
+show = true
+show-backlinks = false
+show-word-count = false
+"#;
+        fs::write(&cfg_path, custom).unwrap();
+
+        let (resolved, warning) =
+            load_or_create_at(&cfg_path, "/home/user").unwrap();
+
+        assert!(warning.is_none());
+        assert!(resolved.status_bar.show);
+        assert!(!resolved.status_bar.show_backlinks);
+        assert!(!resolved.status_bar.show_word_count);
+    }
+
+    #[test]
+    fn status_bar_partial_uses_defaults() {
+        let dir = tempdir().unwrap();
+        let cfg_path = dir.path().join("config.toml");
+
+        let custom = r#"
+version = 1
+
+[vault]
+dir = "~/Notes"
+
+[status-bar]
+show-backlinks = false
+"#;
+        fs::write(&cfg_path, custom).unwrap();
+
+        let (resolved, _) =
+            load_or_create_at(&cfg_path, "/home/user").unwrap();
+
+        assert!(resolved.status_bar.show);
+        assert!(!resolved.status_bar.show_backlinks);
+        assert!(resolved.status_bar.show_word_count);
+    }
+
+    #[test]
+    fn default_template_contains_status_bar_section() {
+        assert!(DEFAULT_TEMPLATE.contains("[status-bar]"));
+        assert!(DEFAULT_TEMPLATE.contains("show = true"));
     }
 }
