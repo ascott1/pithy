@@ -375,6 +375,7 @@
 				...(lang
 					? [syntaxHighlighting(defaultHighlightStyle, { fallback: true })]
 					: [
+							EditorView.contentAttributes.of({ spellcheck: "true" }),
 							inlineRendering(),
 							wikilinkCompartment.of(
 								wikilinks({
