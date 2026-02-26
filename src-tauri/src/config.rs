@@ -78,19 +78,19 @@ const DEFAULT_LIGHT_CSS: &str = r#":root {
 "#;
 
 const DEFAULT_DARK_CSS: &str = r#":root {
-  --editor-bg: #1e1c1a;
-  --editor-text: #d1ccc5;
-  --editor-cursor: #c8c2ba;
-  --editor-selection: #2e3d55;
-  --accent-color: #7b8fd4;
-  --dirty-color: #d4943a;
-  --link-color: #7b8fd4;
-  --error-color: #d4574b;
-  --code-bg: rgba(200, 195, 185, 0.08);
-  --code-block-bg: rgba(200, 195, 185, 0.04);
-  --border-color: rgba(200, 195, 185, 0.18);
-  --backdrop-color: rgba(0, 0, 0, 0.45);
-  --shadow-color: rgba(0, 0, 0, 0.35);
+  --editor-bg: #1c1c1e;
+  --editor-text: #d1d1d6;
+  --editor-cursor: #e5e5ea;
+  --editor-selection: #2c3a50;
+  --accent-color: #5a9cf5;
+  --dirty-color: #e09430;
+  --link-color: #5a9cf5;
+  --error-color: #e05545;
+  --code-bg: rgba(180, 180, 195, 0.08);
+  --code-block-bg: rgba(180, 180, 195, 0.04);
+  --border-color: rgba(180, 180, 195, 0.15);
+  --backdrop-color: rgba(0, 0, 0, 0.50);
+  --shadow-color: rgba(0, 0, 0, 0.40);
 }
 "#;
 
