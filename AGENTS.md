@@ -25,8 +25,10 @@ pithy/
 │   ├── lib/
 │   │   ├── autosave.ts      # AutoSaveController — debounced single-writer autosave
 │   │   ├── fuzzy.ts         # fuzzyScore() — subsequence matching for filename stems
+│   │   ├── BacklinksPopover.svelte  # Backlinks popover — click info bar count to see linking notes
 │   │   ├── QuickSwitcher.svelte  # Cmd+K modal — file nav, fuzzy search, create-on-enter
 │   │   ├── SearchPanel.svelte    # Cmd+Shift+F modal — full-text search via Tantivy
+│   │   ├── InfoBar.svelte        # Status bar — word count + clickable backlinks count
 │   │   ├── editor/
 │   │   │   ├── MarkdownEditor.svelte  # CodeMirror 6 wrapper + inline title (injected into CM scroller)
 │   │   │   └── inlineRendering.ts     # Live preview — hides markdown syntax, renders styled output
@@ -46,6 +48,9 @@ pithy/
 │   │   └── fs.rs           # Filesystem commands (list, read, save, rename, sanitize)
 │   ├── Cargo.toml          # Rust dependencies
 │   └── tauri.conf.json     # Tauri config (window size, app ID, build commands)
+├── docs/                   # Developer documentation
+│   ├── adding-config-settings.md
+│   └── creating-themes.md
 ├── static/                 # Static assets served at /
 ├── package.json            # Node dependencies & scripts
 ├── svelte.config.js        # SvelteKit config with adapter-static
@@ -119,6 +124,14 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 - Default state (before typing) shows recent files.
 - No sidebar in MVP.
 
+### Info Bar & Backlinks Popover
+- Fixed bottom-right status bar (`InfoBar.svelte`) showing word count and backlinks count.
+- Visibility of each item controlled by `StatusBarConfigInfo` from config.
+- Backlinks count is **clickable** when > 0 — opens a `BacklinksPopover` anchored above the info bar.
+- **Popover pattern** (not modal): no backdrop, no dimming, glassmorphic styling matching QuickSwitcher. Dismissed via click-outside (`pointerdown` window listener), Escape, or opening another overlay (QuickSwitcher, SearchPanel).
+- Backlink data: `+page.svelte` stores the full `WikilinkReference[]` array (`backlinkRefs`) alongside the count. Both are refreshed on file open and after rename.
+- Arrow key navigation in popover with modulo wrapping, Enter to select, `pointerenter` syncs hover with keyboard — same interaction pattern as QuickSwitcher items.
+
 ### Wikilinks
 - `[[wikilinks]]` resolve against filename stems, case-insensitive.
 - Autocomplete triggered on `[[` keystroke, fuzzy-matches all filename stems.
@@ -149,7 +162,19 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 - **`EditorConfigInfo`**: separate struct with `#[serde(rename_all = "camelCase")]` for JSON serialization to the frontend. Maps from `EditorConfig` in `get_config_info`.
 - **`AppState`**: holds `Arc<ResolvedConfig>` + optional warning string. Managed as Tauri state.
 - **Frontend**: `getConfigInfo()` is called once in `onMount`. Editor settings are applied as CSS custom properties (`--editor-font-size`, `--editor-font-family`, `--editor-line-height`) on `document.documentElement`. CodeMirror theme reads these vars.
+- **Theme/StatusBar structs** follow the same pattern: `ThemeConfig` → `ThemeConfigInfo`, `StatusBarConfig` → `StatusBarConfigInfo`. All config info structs use `camelCase` JSON serialization for the frontend.
 - **Adding a new setting** requires 3 touch-points: `EditorConfig` + `EditorConfigInfo` (Rust), TS `EditorConfigInfo` interface, CSS var injection line. See `docs/adding-config-settings.md`.
+
+### Theme System
+- Themes are CSS files defining `:root {}` blocks with CSS custom properties.
+- **Config:** `[theme]` section in TOML with `mode` ("auto"/"light"/"dark"), `light` (theme name), `dark` (theme name).
+- **Built-in themes:** `default-light` and `default-dark` are embedded as Rust string constants (`DEFAULT_LIGHT_CSS`, `DEFAULT_DARK_CSS` in `config.rs`).
+- **Custom themes:** `.css` files in `~/.config/pithy/themes/`. Referenced by name (with or without `.css` extension). Missing themes fall back to built-in defaults with a warning.
+- **Resolution pipeline:** `ThemeConfig` (TOML) → `resolve_theme_css()` loads CSS content → `ResolvedConfig` holds CSS strings → `ThemeConfigInfo` (JSON to frontend with `mode`, `lightCss`, `darkCss`).
+- **Frontend injection:** `+page.svelte` creates a `<style id="pithy-theme">` element in `<head>` on mount. For `mode: "auto"`, wraps each theme's CSS in `@media (prefers-color-scheme: light/dark)`. For forced mode, injects the chosen CSS directly.
+- **Theme CSS variables:** `--editor-bg`, `--editor-text`, `--editor-cursor`, `--editor-selection`, `--accent-color`, `--link-color`, `--dirty-color`, `--error-color`, `--code-bg`, `--code-block-bg`, `--border-color`, `--backdrop-color`, `--shadow-color`. Font settings (`--editor-font-size`, `--editor-font-family`, `--editor-line-height`) are controlled by `[editor]` config, not themes.
+- **Hardcoded CSS fallback:** `+page.svelte` still defines light defaults in `:global(:root)` as a baseline before theme CSS loads.
+- See `docs/creating-themes.md` for the full user-facing guide.
 
 ### Search (Tantivy)
 - Full-text search via Tantivy (Rust).
@@ -245,9 +270,9 @@ Graph view, block references/transclusion, frontmatter parsing, PDF/media, expor
 - **Atomic file writes** — always write-to-temp-then-rename for any file mutation.
 - **macOS-first** — follow platform conventions (Cmd shortcuts, system fonts, accent colors). Linux/Windows deferred.
 - **No unnecessary abstractions** — build what's needed now. No plugin architecture, no extension points, no premature generalization.
-- **CSS variables** — define on `:global(:root)` (not scoped `:root`) so they reach CodeMirror's shadow styles. Use `prefers-color-scheme: dark` media query for dark mode.
+- **CSS variables** — define on `:global(:root)` (not scoped `:root`) so they reach CodeMirror's shadow styles. Dark mode is handled by the theme system (see "Theme System" section), not per-component `@media` queries.
 - **Async race guards** — use sequence counters (`openSeq`, `renameSeq`) for any async operation that sets state; check the counter after `await` to discard stale results.
 - **Editor remounting** — wrap `MarkdownEditor` in `{#key currentPath}` so each file gets a fresh CodeMirror instance with clean undo history.
 - **Config identifier:** `com.writepithy.app`
 - **Autosave flush-before-switch** — always `await autosave.flushAndWait()` before opening a different file or renaming. After rename, call `autosave.setOpenedFile(newPath, doc)` to reset the baseline.
-- **CSS variables** — define on `:global(:root)` (not scoped `:root`) so they reach CodeMirror's shadow styles. Use `prefers-color-scheme: dark` media query for dark mode. Current vars: `--editor-bg`, `--editor-text`, `--editor-cursor`, `--editor-selection`, `--accent-color`, `--dirty-color`, `--content-max-width`, `--editor-font-size`, `--editor-font-family`, `--editor-line-height`.
+- **CSS variables** — define on `:global(:root)` (not scoped `:root`) so they reach CodeMirror's shadow styles. Theme-controlled color vars: `--editor-bg`, `--editor-text`, `--editor-cursor`, `--editor-selection`, `--accent-color`, `--link-color`, `--dirty-color`, `--error-color`, `--code-bg`, `--code-block-bg`, `--border-color`, `--backdrop-color`, `--shadow-color`. Layout/font vars (set from `[editor]` config): `--content-max-width`, `--editor-font-size`, `--editor-font-family`, `--editor-line-height`. Dark mode is handled by the theme system, not inline `@media` queries in component styles.
