@@ -11,7 +11,7 @@ Pithy is a fast, focused markdown notes app for macOS desktop. The core philosop
 | Desktop framework | **Tauri 2** | Rust backend, native webview. No Electron. |
 | Frontend framework | **Svelte 5** | Uses runes (`$state`, `$derived`, etc.). SvelteKit with `adapter-static` for SSG. |
 | Editor | **CodeMirror 6** | Integrated. Markdown highlighting, line wrapping, autosave. |
-| Search | **Tantivy** | Not yet integrated — Rust full-text search library. |
+| Search | **Tantivy** | Integrated — Rust full-text search, index in `.pithy/` vault dotfolder. |
 | Language (UI) | **TypeScript** | Strict mode enabled. |
 | Language (backend) | **Rust** | Via Tauri commands. |
 | Package manager | **pnpm** | |
@@ -24,9 +24,11 @@ pithy/
 ├── src/                    # Frontend (Svelte/TypeScript)
 │   ├── lib/
 │   │   ├── autosave.ts      # AutoSaveController — debounced single-writer autosave
+│   │   ├── daily.ts         # formatDailyName() — date-based note name formatting
 │   │   ├── fuzzy.ts         # fuzzyScore() — subsequence matching for filename stems
 │   │   ├── BacklinksPopover.svelte  # Backlinks popover — click info bar count to see linking notes
-│   │   ├── QuickSwitcher.svelte  # Cmd+K modal — file nav, fuzzy search, create-on-enter
+│   │   ├── DeleteConfirmDialog.svelte  # Delete confirmation — shows broken backlink warnings
+│   │   ├── QuickSwitcher.svelte  # Cmd+K modal — file nav, fuzzy search, create-on-enter, delete
 │   │   ├── SearchPanel.svelte    # Cmd+Shift+F modal — full-text search via Tantivy
 │   │   ├── InfoBar.svelte        # Status bar — word count + clickable backlinks count
 │   │   ├── editor/
@@ -50,7 +52,8 @@ pithy/
 │   └── tauri.conf.json     # Tauri config (window size, app ID, build commands)
 ├── docs/                   # Developer documentation
 │   ├── adding-config-settings.md
-│   └── creating-themes.md
+│   ├── creating-themes.md
+│   └── shortcuts.md
 ├── static/                 # Static assets served at /
 ├── package.json            # Node dependencies & scripts
 ├── svelte.config.js        # SvelteKit config with adapter-static
@@ -81,6 +84,7 @@ Keep the IPC surface small — well-defined Tauri commands.
 - `list_files() -> Vec<String>` — walks vault, returns relative `.md` paths, seeds `welcome.md` on empty vault.
 - `read_file(rel_path) -> String` — reads file contents.
 - `save_file(rel_path, contents)` — atomic write (temp → fsync → rename → fsync dir).
+- `delete_file(rel_path)` — moves file to system Trash (via `trash` crate), removes from search index.
 - `rename_file(old_rel_path, new_rel_path)` — renames, fails if destination exists.
 - `sanitize_filename(name) -> String` — deterministic sanitization (lowercase, spaces→dashes, strip illegal chars).
 
@@ -98,7 +102,7 @@ All paths are relative to vault root. `resolve_path()` rejects `..`, absolute pa
 - The editor shows an **editable title `<input>`** injected into CM6's `.cm-scroller` (Obsidian-style inline title). It scrolls with the document. Arrow keys navigate between title and editor as if they're one surface.
 - Display: dashes/underscores → spaces (`project-kickoff.md` → "project kickoff"). Display-only; file on disk unchanged.
 - Editing the title triggers a file rename on blur/Enter. Escape reverts. Rename fails gracefully if destination exists.
-- If wikilinks reference the old name, show a confirmation dialog for bulk rewrite (not yet implemented).
+- If wikilinks reference the old name, a confirmation dialog (`WikilinkUpdateDialog`) offers bulk rewrite of all references.
 
 ### Filename Sanitization
 A single deterministic function (defined in Rust, exposed via Tauri command) used everywhere: spaces → dashes, strip illegal characters (`/ \ : * ? " < > |`), lowercase everything.
@@ -183,6 +187,19 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 - Incremental re-index on file change events.
 - Tags (`#tag`) indexed as structured metadata; tags inside code blocks/URLs excluded.
 
+### Daily Notes
+- Cmd+D opens or creates today's daily note.
+- Filename format is configurable via `[daily]` section in config TOML (`format` key, default `"YYYY-MM-DD"`).
+- Subfolder configurable via `folder` key (e.g., `folder = "daily"`).
+- Implementation: `formatDailyName()` in `src/lib/daily.ts` handles date formatting. Config structs follow the standard pipeline (`DailyConfig` → `DailyConfigInfo`).
+
+### Deleting Notes
+- Cmd+Backspace triggers delete for the current note (vault mode only).
+- Also available as a "Delete" action in the QuickSwitcher when a note is open.
+- Shows `DeleteConfirmDialog` with the note name and a list of backlinks that will break.
+- Files are moved to system Trash via the `trash` crate (not permanently deleted).
+- After deletion, the search index is updated and the app opens the next available note.
+
 ## Performance Targets
 
 | Metric | Target |
@@ -204,8 +221,11 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 | Full-text search | Cmd+Shift+F |
 | Daily note | Cmd+D |
 | Open config | Cmd+, |
+| Delete current note | Cmd+Backspace |
 | Immediate save (flush) | Cmd+S |
 | Quick capture (global) | Configurable |
+
+See `docs/shortcuts.md` for the full shortcuts reference.
 
 ## Testing
 
@@ -276,3 +296,4 @@ Graph view, block references/transclusion, frontmatter parsing, PDF/media, expor
 - **Config identifier:** `com.writepithy.app`
 - **Autosave flush-before-switch** — always `await autosave.flushAndWait()` before opening a different file or renaming. After rename, call `autosave.setOpenedFile(newPath, doc)` to reset the baseline.
 - **CSS variables** — define on `:global(:root)` (not scoped `:root`) so they reach CodeMirror's shadow styles. Theme-controlled color vars: `--editor-bg`, `--editor-text`, `--editor-cursor`, `--editor-selection`, `--accent-color`, `--link-color`, `--dirty-color`, `--error-color`, `--code-bg`, `--code-block-bg`, `--border-color`, `--backdrop-color`, `--shadow-color`. Layout/font vars (set from `[editor]` config): `--content-max-width`, `--editor-font-size`, `--editor-font-family`, `--editor-line-height`. Dark mode is handled by the theme system, not inline `@media` queries in component styles.
+- **Keyboard shortcuts** — when adding or changing a keyboard shortcut, always update `docs/shortcuts.md` to keep the shortcuts reference in sync.
