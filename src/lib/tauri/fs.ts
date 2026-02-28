@@ -12,6 +12,10 @@ export function saveFile(relPath: string, contents: string): Promise<void> {
 	return invoke<void>("save_file", { relPath, contents });
 }
 
+export function deleteFile(relPath: string): Promise<void> {
+	return invoke<void>("delete_file", { relPath });
+}
+
 export function renameFile(oldRelPath: string, newRelPath: string): Promise<void> {
 	return invoke<void>("rename_file", { oldRelPath, newRelPath });
 }

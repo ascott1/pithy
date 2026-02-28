@@ -71,6 +71,7 @@ pub fn run() {
             fs::list_files,
             fs::read_file,
             fs::save_file,
+            fs::delete_file,
             fs::rename_file,
             fs::sanitize_filename,
             fs::find_wikilink_references,

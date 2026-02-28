@@ -10,6 +10,7 @@
 		listFiles,
 		readFile,
 		saveFile,
+		deleteFile,
 		renameFile,
 		sanitizeFilename,
 		findWikilinkReferences,
@@ -25,6 +26,7 @@
 	import { resolveWikilink } from "$lib/editor/wikilink";
 	import { formatDailyName } from "$lib/daily";
 	import WikilinkUpdateDialog from "$lib/WikilinkUpdateDialog.svelte";
+	import DeleteConfirmDialog from "$lib/DeleteConfirmDialog.svelte";
 	import type { DailyConfigInfo, StatusBarConfigInfo } from "$lib/tauri/config";
 	import { StreamLanguage } from "@codemirror/language";
 	import { toml } from "@codemirror/legacy-modes/mode/toml";
@@ -91,6 +93,11 @@
 		newPath: string;
 		references: WikilinkReference[];
 	} | null>(null);
+	let deleteDialog = $state<{
+		noteName: string;
+		path: string;
+		references: WikilinkReference[];
+	} | null>(null);
 	let editorApi: { focus: () => void; focusTitle: () => void } | null = null;
 
 	let openSeq = 0;
@@ -154,6 +161,9 @@
 		} else if (e.metaKey && e.key === "d") {
 			e.preventDefault();
 			void openOrCreateDailyNote();
+		} else if (e.metaKey && e.key === "Backspace" && mode === "vault" && currentPath) {
+			e.preventDefault();
+			void deleteCurrentNote();
 		} else if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "f") {
 			e.preventDefault();
 			showSwitcher = false;
@@ -240,6 +250,49 @@
 			await openNote(resolved);
 		} else {
 			await createNote(target);
+		}
+	}
+
+	async function deleteCurrentNote() {
+		if (!currentPath || mode !== "vault") return;
+		await autosave.flushAndWait();
+
+		const stem = currentPath.replace(/\.md$/, "").split("/").pop()!;
+		const refs = await findWikilinkReferences(stem);
+		deleteDialog = {
+			noteName: displayName(currentPath),
+			path: currentPath,
+			references: refs,
+		};
+	}
+
+	async function confirmDelete() {
+		if (!deleteDialog) return;
+		const pathToDelete = deleteDialog.path;
+		deleteDialog = null;
+
+		try {
+			await deleteFile(pathToDelete);
+		} catch (e) {
+			console.error("Failed to delete:", e);
+			return;
+		}
+
+		fileEntries = fileEntries.filter((f) => f.path !== pathToDelete);
+
+		// Open next note: most recent (skip deleted), or first available, or empty state
+		const nextPath = recentPaths.find((p) => p !== pathToDelete && fileEntries.some((f) => f.path === p))
+			?? fileEntries[0]?.path
+			?? null;
+
+		recentPaths = recentPaths.filter((p) => p !== pathToDelete);
+
+		if (nextPath) {
+			await openFile(nextPath);
+			addRecent(nextPath);
+		} else {
+			currentPath = null;
+			doc = "";
 		}
 	}
 
@@ -483,8 +536,10 @@
 	<QuickSwitcher
 		files={fileEntries}
 		recents={recentPaths}
+		{currentPath}
 		onselect={(path) => void openNote(path)}
 		oncreate={(name) => void createNote(name)}
+		ondelete={() => { showSwitcher = false; void deleteCurrentNote(); }}
 		onsearch={(q) => {
 			showSwitcher = false;
 			searchInitialQuery = q;
@@ -509,6 +564,15 @@
 		references={wikilinkDialog.references}
 		onupdate={() => void handleWikilinkUpdate()}
 		onskip={() => (wikilinkDialog = null)}
+	/>
+{/if}
+
+{#if deleteDialog}
+	<DeleteConfirmDialog
+		noteName={deleteDialog.noteName}
+		references={deleteDialog.references}
+		onconfirm={() => void confirmDelete()}
+		oncancel={() => (deleteDialog = null)}
 	/>
 {/if}
 

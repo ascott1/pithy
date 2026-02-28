@@ -12,13 +12,15 @@
   interface Props {
     files: FileEntry[];
     recents: string[];
+    currentPath: string | null;
     onselect: (path: string) => void;
     oncreate: (name: string) => void;
+    ondelete: () => void;
     onsearch: (query: string) => void;
     onclose: () => void;
   }
 
-  let { files, recents, onselect, oncreate, onsearch, onclose }: Props = $props();
+  let { files, recents, currentPath, onselect, oncreate, ondelete, onsearch, onclose }: Props = $props();
 
   let query = $state("");
   let selectedIndex = $state(0);
@@ -132,10 +134,20 @@
     !isTagMode && !isSearchMode && query.trim().length > 0 && results.length === 0,
   );
 
+  let currentStem = $derived(
+    currentPath
+      ? currentPath.replace(/\.md$/, "").split("/").pop()!.replaceAll("-", " ").replaceAll("_", " ")
+      : null,
+  );
+
+  let showDelete = $derived(
+    !isTagMode && !isSearchMode && currentPath !== null && query.trim().toLowerCase().startsWith("delete"),
+  );
+
   // Total number of actionable items in the list
   let totalItems = $derived.by(() => {
     if (isTagMode) return tagResults.length;
-    return results.length + (showCreate ? 1 : 0) + filteredContentHits.length;
+    return results.length + (showCreate ? 1 : 0) + (showDelete ? 1 : 0) + filteredContentHits.length;
   });
 
   $effect(() => {
@@ -170,13 +182,17 @@
         onselect(results[selectedIndex].path);
       } else {
         const afterFiles = selectedIndex - results.length;
-        if (showCreate && afterFiles === 0) {
-          oncreate(query.trim());
-        } else {
-          const contentIndex = afterFiles - (showCreate ? 1 : 0);
-          if (filteredContentHits[contentIndex]) {
-            onselect(filteredContentHits[contentIndex].path);
-          }
+        let offset = afterFiles;
+        if (showCreate) {
+          if (offset === 0) { oncreate(query.trim()); return; }
+          offset--;
+        }
+        if (showDelete) {
+          if (offset === 0) { ondelete(); return; }
+          offset--;
+        }
+        if (filteredContentHits[offset]) {
+          onselect(filteredContentHits[offset].path);
         }
       }
     } else if (e.key === "Escape") {
@@ -228,7 +244,7 @@
           <div class="switcher-empty">Loading tags…</div>
         {/if}
       </div>
-    {:else if results.length > 0 || showCreate || filteredContentHits.length > 0}
+    {:else if results.length > 0 || showCreate || showDelete || filteredContentHits.length > 0}
       <div class="switcher-results" role="listbox">
         {#if results.length > 0}
           {#each results as result, i}
@@ -264,10 +280,26 @@
           </button>
         {/if}
 
+        {#if showDelete}
+          {@const deleteIndex = results.length + (showCreate ? 1 : 0)}
+          <div class="section-divider">Action</div>
+          <button
+            class="switcher-item delete-item"
+            class:selected={selectedIndex === deleteIndex}
+            role="option"
+            aria-selected={selectedIndex === deleteIndex}
+            onclick={() => ondelete()}
+            onpointerenter={() => (selectedIndex = deleteIndex)}
+          >
+            <span class="delete-icon">&#x2717;</span>
+            <span class="delete-text">Delete "{currentStem}"</span>
+          </button>
+        {/if}
+
         {#if filteredContentHits.length > 0}
           <div class="section-divider">{isSearchMode ? `Search for "${searchText.trim()}"` : "In notes"}</div>
           {#each filteredContentHits as hit, i}
-            {@const flatIndex = results.length + (showCreate ? 1 : 0) + i}
+            {@const flatIndex = results.length + (showCreate ? 1 : 0) + (showDelete ? 1 : 0) + i}
             <button
               class="switcher-item content-item"
               class:selected={selectedIndex === flatIndex}
@@ -414,6 +446,23 @@
 
   .create-text {
     opacity: 0.65;
+  }
+
+  .delete-item {
+    gap: 10px;
+  }
+
+  .delete-icon {
+    flex-shrink: 0;
+    font-size: 0.875rem;
+    opacity: 0.5;
+    color: var(--error-color);
+    line-height: 1;
+  }
+
+  .delete-text {
+    opacity: 0.65;
+    color: var(--error-color);
   }
 
   .content-item {

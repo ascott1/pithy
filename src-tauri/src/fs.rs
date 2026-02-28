@@ -158,6 +158,21 @@ pub fn sanitize_filename(name: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn delete_file(
+    rel_path: String,
+    state: tauri::State<'_, AppState>,
+    search: tauri::State<'_, SearchState>,
+) -> Result<(), String> {
+    let path = resolve_path(&state.config.vault_dir, &rel_path)?;
+    if !path.exists() {
+        return Err("File does not exist".into());
+    }
+    trash::delete(&path).map_err(|e| e.to_string())?;
+    let _ = search.op_sender.send(IndexOp::Delete { rel_path });
+    Ok(())
+}
+
+#[tauri::command]
 pub fn rename_file(
     old_rel_path: String,
     new_rel_path: String,
