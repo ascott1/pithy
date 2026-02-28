@@ -60,13 +60,14 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
 }
 
 fn sanitize_filename_impl(name: &str) -> String {
-    let mut s = name.trim().to_lowercase();
+    let mut s = name.trim().to_string();
 
     if let Some(stripped) = s.strip_suffix(".md") {
         s = stripped.to_string();
     }
 
     let mut out = String::with_capacity(s.len());
+    let mut prev_space = false;
     let mut prev_dash = false;
 
     for ch in s.chars() {
@@ -74,21 +75,31 @@ fn sanitize_filename_impl(name: &str) -> String {
             continue;
         }
 
-        if ch.is_whitespace() || ch == '_' || ch == '-' {
+        if ch == '-' {
             if !prev_dash && !out.is_empty() {
                 out.push('-');
                 prev_dash = true;
+                prev_space = false;
+            }
+            continue;
+        }
+
+        if ch.is_whitespace() || ch == '_' {
+            if !prev_space && !prev_dash && !out.is_empty() {
+                out.push(' ');
+                prev_space = true;
             }
             continue;
         }
 
         if ch.is_ascii_alphanumeric() {
             out.push(ch);
+            prev_space = false;
             prev_dash = false;
         }
     }
 
-    let out = out.trim_matches('-').to_string();
+    let out = out.trim_matches(|c: char| c == '-' || c == ' ').to_string();
     if out.is_empty() {
         "untitled".into()
     } else {
@@ -348,11 +359,11 @@ mod tests {
 
     #[test]
     fn sanitize_basic_cases() {
-        assert_eq!(sanitize_filename_impl(" Hello World.md "), "hello-world");
+        assert_eq!(sanitize_filename_impl(" Hello World.md "), "Hello World");
         assert_eq!(sanitize_filename_impl("____"), "untitled");
-        assert_eq!(sanitize_filename_impl("My/Bad:Name?.md"), "mybadname");
+        assert_eq!(sanitize_filename_impl("My/Bad:Name?.md"), "MyBadName");
         assert_eq!(sanitize_filename_impl("  already-clean  "), "already-clean");
-        assert_eq!(sanitize_filename_impl("UPPER CASE"), "upper-case");
+        assert_eq!(sanitize_filename_impl("UPPER CASE"), "UPPER CASE");
     }
 
     #[test]

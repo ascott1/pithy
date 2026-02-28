@@ -183,7 +183,6 @@
 			.replace(/\.md$/, "")
 			.split("/")
 			.pop()!
-			.replaceAll("-", " ")
 			.replaceAll("_", " ");
 	}
 
