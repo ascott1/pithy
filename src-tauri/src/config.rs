@@ -760,7 +760,7 @@ dir = "notes"
         let themes_dir = dir.path().join("themes");
         let mut warnings = Vec::new();
         let css = resolve_theme_css("default-dark", &themes_dir, &mut warnings, "default-dark");
-        assert!(css.contains("--editor-bg: #1e1c1a"));
+        assert!(css.contains("--editor-bg: #1c1c1e"));
         assert!(warnings.is_empty());
     }
 
@@ -798,7 +798,7 @@ dir = "notes"
 
         let mut warnings = Vec::new();
         let css = resolve_theme_css("nonexistent", &themes_dir, &mut warnings, "default-dark");
-        assert!(css.contains("--editor-bg: #1e1c1a")); // fell back to dark
+        assert!(css.contains("--editor-bg: #1c1c1e")); // fell back to dark
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("not found"));
     }
@@ -838,7 +838,7 @@ mode = "invalid"
         assert!(warning.is_none());
         assert_eq!(resolved.theme_mode, "auto");
         assert!(resolved.theme_light_css.contains("--editor-bg: #ffffff"));
-        assert!(resolved.theme_dark_css.contains("--editor-bg: #1e1c1a"));
+        assert!(resolved.theme_dark_css.contains("--editor-bg: #1c1c1e"));
     }
 
     #[test]
