@@ -502,7 +502,10 @@
 					ontitlechange={(v) => (titleDraft = v)}
 					ontitleblur={() => void commitTitleRename()}
 					ontitlekeydown={onTitleKeydown}
-					onready={(api) => (editorApi = api)}
+					onready={(api) => {
+						editorApi = api;
+						api.focus();
+					}}
 					fileStems={fileEntries}
 					onnavigate={(t) => void handleWikilinkNavigate(t)}
 				/>
