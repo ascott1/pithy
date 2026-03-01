@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { EditorView, keymap } from "@codemirror/view";
-	import { Compartment, EditorState, type Extension } from "@codemirror/state";
+	import { EditorView, keymap, type KeyBinding } from "@codemirror/view";
+	import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 	import {
 		defaultKeymap,
 		history,
 		historyKeymap,
+		indentMore,
+		indentLess,
 	} from "@codemirror/commands";
 	import { markdown } from "@codemirror/lang-markdown";
 	import { languages } from "@codemirror/language-data";
@@ -140,6 +142,84 @@
 			);
 		}
 	}
+
+	function toggleInlineDelimiter(view: EditorView, delimiter: string): boolean {
+		const { state } = view;
+		const len = delimiter.length;
+		const changes = state.changeByRange((range) => {
+			const text = state.sliceDoc(range.from, range.to);
+			// Check if selection itself is wrapped
+			if (text.startsWith(delimiter) && text.endsWith(delimiter) && text.length >= len * 2) {
+				const inner = text.slice(len, -len);
+				return {
+					changes: { from: range.from, to: range.to, insert: inner },
+					range: EditorSelection.range(range.from, range.from + inner.length),
+				};
+			}
+			// Check surrounding context (cursor inside delimiters, or selection surrounded)
+			const before = state.sliceDoc(Math.max(0, range.from - len), range.from);
+			const after = state.sliceDoc(range.to, Math.min(state.doc.length, range.to + len));
+			if (before === delimiter && after === delimiter) {
+				return {
+					changes: [
+						{ from: range.from - len, to: range.from, insert: "" },
+						{ from: range.to, to: range.to + len, insert: "" },
+					],
+					range: EditorSelection.range(range.from - len, range.to - len),
+				};
+			}
+			// Wrap
+			const wrapped = delimiter + text + delimiter;
+			return {
+				changes: { from: range.from, to: range.to, insert: wrapped },
+				range: EditorSelection.range(range.from + len, range.from + len + text.length),
+			};
+		});
+		view.dispatch(state.update(changes, { userEvent: "input" }));
+		return true;
+	}
+
+	function toggleCodeBlock(view: EditorView): boolean {
+		const { state } = view;
+		const range = state.selection.main;
+		const fromLine = state.doc.lineAt(range.from);
+		const toLine = state.doc.lineAt(range.to);
+
+		// Check if already in a code block (line before starts with ``` and line after starts with ```)
+		const lineBefore = fromLine.number > 1 ? state.doc.line(fromLine.number - 1) : null;
+		const lineAfter = toLine.number < state.doc.lines ? state.doc.line(toLine.number + 1) : null;
+
+		if (lineBefore?.text.startsWith("```") && lineAfter?.text.startsWith("```")) {
+			// Remove the fence lines
+			view.dispatch({
+				changes: [
+					{ from: lineAfter.from - 1, to: lineAfter.to },
+					{ from: lineBefore.from, to: lineBefore.to + 1 },
+				],
+				userEvent: "input",
+			});
+		} else {
+			// Wrap selection in fences
+			const openFence = "```\n";
+			const closeFence = "\n```";
+			view.dispatch({
+				changes: { from: fromLine.from, to: toLine.to, insert: openFence + state.sliceDoc(fromLine.from, toLine.to) + closeFence },
+				selection: { anchor: fromLine.from + openFence.length, head: toLine.to + openFence.length },
+				userEvent: "input",
+			});
+		}
+		return true;
+	}
+
+	const markdownKeymap: KeyBinding[] = [
+		{ key: "Mod-b", run: (v: EditorView) => toggleInlineDelimiter(v, "**") },
+		{ key: "Mod-i", run: (v: EditorView) => toggleInlineDelimiter(v, "*") },
+		{ key: "Mod-e", run: (v: EditorView) => toggleInlineDelimiter(v, "`") },
+		{ key: "Mod-Shift-x", run: (v: EditorView) => toggleInlineDelimiter(v, "~~") },
+		{ key: "Mod-Shift-c", run: toggleCodeBlock },
+		{ key: "Tab", run: indentMore },
+		{ key: "Shift-Tab", run: indentLess },
+	];
 
 	function createSearchPanel(view: EditorView): Panel {
 		const dom = document.createElement("div");
@@ -389,6 +469,7 @@
 						]),
 				search({ top: true, createPanel: createSearchPanel }),
 				keymap.of([
+					...(lang ? [] : markdownKeymap),
 					...defaultKeymap,
 					...historyKeymap,
 					...searchKeymap,

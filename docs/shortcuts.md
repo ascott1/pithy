@@ -14,6 +14,20 @@ These work anywhere in the app regardless of focus.
 | Cmd+, | Open config | Opens `config.toml` in the editor (via native menu). |
 | Cmd+Backspace | Delete current note | Moves current note to Trash. Shows confirmation dialog with backlink warnings. Only active in vault mode. |
 
+## Markdown Formatting
+
+These work in the editor in vault/markdown mode (not in config editing mode).
+
+| Shortcut | Action | Notes |
+|---|---|---|
+| Cmd+B | Toggle bold | Wraps/unwraps selection with `**`. |
+| Cmd+I | Toggle italic | Wraps/unwraps selection with `*`. |
+| Cmd+E | Toggle inline code | Wraps/unwraps selection with `` ` ``. |
+| Cmd+Shift+X | Toggle strikethrough | Wraps/unwraps selection with `~~`. |
+| Cmd+Shift+C | Toggle code block | Wraps/unwraps selection with ``` fences. |
+| Tab | Indent | Indents the current line or list item. |
+| Shift+Tab | Outdent | Outdents the current line or list item. |
+
 ## Editor Shortcuts
 
 These work when the CodeMirror editor has focus.
