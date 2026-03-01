@@ -37,6 +37,7 @@
 	let currentPath = $state<string | null>(null);
 	let doc = $state("");
 	let configWarning = $state<string | null>(null);
+	let vaultDir = $state("");
 
 	let saveState = $state<SaveState>("idle");
 	let saveDirty = $state(false);
@@ -107,6 +108,7 @@
 	onMount(async () => {
 		const info = await getConfigInfo();
 		if (info.warning) configWarning = info.warning;
+		vaultDir = info.vaultDir;
 
 		autoUpdateLinks = info.autoUpdateLinks;
 		dailyConfig = info.daily;
@@ -508,6 +510,7 @@
 					}}
 					fileStems={fileEntries}
 					onnavigate={(t) => void handleWikilinkNavigate(t)}
+					vaultRoot={vaultDir}
 				/>
 			{/key}
 		</div>

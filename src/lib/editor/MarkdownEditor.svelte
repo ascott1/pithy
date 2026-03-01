@@ -26,7 +26,7 @@
 		closeSearchPanel,
 	} from "@codemirror/search";
 	import type { Panel } from "@codemirror/view";
-	import { inlineRendering } from "$lib/editor/inlineRendering";
+	import { inlineRendering, vaultRootFacet } from "$lib/editor/inlineRendering";
 	import {
 		wikilinkExtension,
 		wikilinks,
@@ -50,6 +50,7 @@
 		ontitlekeydown?: (e: KeyboardEvent) => void;
 		fileStems?: FileEntry[];
 		onnavigate?: (target: string) => void;
+		vaultRoot?: string;
 	}
 
 	let {
@@ -69,6 +70,7 @@
 		ontitlekeydown,
 		fileStems = [],
 		onnavigate,
+		vaultRoot = "",
 	}: Props = $props();
 
 	const wikilinkCompartment = new Compartment();
@@ -376,6 +378,7 @@
 					? [syntaxHighlighting(defaultHighlightStyle, { fallback: true })]
 					: [
 							EditorView.contentAttributes.of({ spellcheck: "true" }),
+							vaultRootFacet.of(vaultRoot),
 							inlineRendering(),
 							wikilinkCompartment.of(
 								wikilinks({

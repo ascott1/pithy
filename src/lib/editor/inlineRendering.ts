@@ -3,6 +3,7 @@ import {
 	type DecorationSet,
 	EditorView,
 	ViewPlugin,
+	WidgetType,
 } from "@codemirror/view";
 import {
 	syntaxTree,
@@ -10,9 +11,50 @@ import {
 	syntaxHighlighting,
 } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
-import { StateField, type EditorState, type Extension, type Range, type SelectionRange } from "@codemirror/state";
+import { Facet, StateField, type EditorState, type Extension, type Range, type SelectionRange } from "@codemirror/state";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { wikilinkNavigateFacet } from "$lib/editor/wikilink";
+
+export const vaultRootFacet = Facet.define<string, string>({
+	combine: (values) => values[0] ?? "",
+});
+
+class ImageWidget extends WidgetType {
+	constructor(
+		readonly src: string,
+		readonly alt: string,
+	) {
+		super();
+	}
+	eq(other: ImageWidget) {
+		return other.src === this.src && other.alt === this.alt;
+	}
+	toDOM() {
+		const wrapper = document.createElement("div");
+		wrapper.className = "cm-md-image-wrapper";
+		const img = document.createElement("img");
+		img.src = this.src;
+		img.alt = this.alt;
+		img.className = "cm-md-image";
+		img.onerror = () => {
+			img.style.display = "none";
+		};
+		wrapper.appendChild(img);
+		return wrapper;
+	}
+	updateDOM(dom: HTMLElement) {
+		const img = dom.querySelector("img");
+		if (!img) return false;
+		img.src = this.src;
+		img.alt = this.alt;
+		img.style.display = "";
+		return true;
+	}
+	ignoreEvent() {
+		return true;
+	}
+}
 
 // --- Hoisted decoration constants (immutable, shared across all builds) ---
 const REPLACE = Decoration.replace({});
@@ -175,6 +217,34 @@ function blockquotePrefixLen(text: string): number {
 	return i;
 }
 
+/**
+ * Returns true if a relative path is safe (no traversal or absolute components).
+ * Mirrors the logic from resolve_path() in fs.rs.
+ */
+function isRelativePathSafe(url: string): boolean {
+	if (url.startsWith("/") || url.startsWith("\\")) return false;
+	const segments = url.split(/[/\\]/);
+	return segments.every((s) => s !== ".." && s !== ".");
+}
+
+/**
+ * Resolves an image URL to a loadable src.
+ * Returns null for unsafe or unresolvable URLs.
+ */
+function resolveImageSrc(url: string, vaultRoot: string): string | null {
+	// Absolute URLs: allow only http(s)
+	if (/^[a-z][a-z0-9+.-]*:/i.test(url)) {
+		if (url.startsWith("http://") || url.startsWith("https://")) {
+			return url;
+		}
+		return null;
+	}
+	// Relative path: resolve against vault root with traversal check
+	if (!vaultRoot || !isRelativePathSafe(url)) return null;
+	const absPath = vaultRoot + (vaultRoot.endsWith("/") ? "" : "/") + url;
+	return convertFileSrc(absPath);
+}
+
 function buildDecorations(state: EditorState): DecorationSet {
 	const decorations: Range<Decoration>[] = [];
 	const selections = state.selection.ranges;
@@ -311,6 +381,51 @@ function buildDecorations(state: EditorState): DecorationSet {
 					);
 				}
 				return;
+			}
+
+			// --- Images ---
+			if (name === "Image") {
+				if (active) return false;
+				const cur = node.node.cursor();
+				let url = "";
+				let alt = "";
+				let seenFirstMark = false;
+				let altStart = -1;
+				let altEnd = -1;
+
+				if (cur.firstChild()) {
+					do {
+						if (cur.name === "LinkMark") {
+							if (!seenFirstMark) {
+								altStart = cur.to;
+								seenFirstMark = true;
+							} else if (altEnd < 0) {
+								altEnd = cur.from;
+							}
+						} else if (cur.name === "URL") {
+							url = doc.sliceString(cur.from, cur.to);
+						}
+					} while (cur.nextSibling());
+				}
+
+				if (altStart >= 0 && altEnd >= 0 && altStart < altEnd) {
+					alt = doc.sliceString(altStart, altEnd);
+				}
+
+				if (url) {
+					const resolvedSrc = resolveImageSrc(
+						url,
+						state.facet(vaultRootFacet),
+					);
+					if (resolvedSrc) {
+						decorations.push(
+							Decoration.replace({
+								widget: new ImageWidget(resolvedSrc, alt),
+							}).range(node.from, node.to),
+						);
+					}
+				}
+				return false;
 			}
 
 			// --- Wikilinks ---
@@ -601,6 +716,16 @@ const inlineRenderingTheme = EditorView.baseTheme({
 		lineHeight: "0 !important",
 		padding: "0.75em 0 !important",
 	},
+
+	".cm-md-image-wrapper": {
+		padding: "0.5em 0",
+		lineHeight: "0",
+	},
+	".cm-md-image": {
+		maxWidth: "100%",
+		borderRadius: "4px",
+		display: "block",
+	},
 });
 
 /**
@@ -619,12 +744,12 @@ const highlightStyle = HighlightStyle.define([
 		tag: [
 			tags.atom,
 			tags.bool,
-			tags.url,
 			tags.contentSeparator,
 			tags.labelName,
 		],
 		color: "#219",
 	},
+	{ tag: tags.url, color: "var(--link-color, var(--accent-color, #4078f2))" },
 	{ tag: [tags.literal, tags.inserted], color: "#164" },
 	{ tag: [tags.string, tags.deleted], color: "#a11" },
 	{

@@ -208,6 +208,54 @@ describe("inlineRendering", () => {
 		});
 	});
 
+	describe("images", () => {
+		it("replaces image syntax with img element when cursor is outside", () => {
+			const doc = "text\n\n![alt](https://example.com/img.png)\n\nmore";
+			const view = createView(doc, 0);
+			const img = view.dom.querySelector(".cm-md-image");
+			expect(img).not.toBeNull();
+			expect(img?.getAttribute("src")).toBe("https://example.com/img.png");
+			expect(img?.getAttribute("alt")).toBe("alt");
+		});
+
+		it("shows raw syntax when cursor is inside image", () => {
+			const doc = "![alt](https://example.com/img.png)";
+			const view = createView(doc, 5);
+			const img = view.dom.querySelector(".cm-md-image");
+			expect(img).toBeNull();
+			expect(getTextContent(view)).toContain("![alt]");
+		});
+
+		it("handles empty alt text", () => {
+			const doc = "text\n\n![](https://example.com/img.png)\n\nmore";
+			const view = createView(doc, 0);
+			const img = view.dom.querySelector(".cm-md-image");
+			expect(img).not.toBeNull();
+			expect(img?.getAttribute("alt")).toBe("");
+		});
+
+		it("blocks javascript: URI scheme", () => {
+			const doc = "text\n\n![xss](javascript:alert(1))\n\nmore";
+			const view = createView(doc, 0);
+			const img = view.dom.querySelector(".cm-md-image");
+			expect(img).toBeNull();
+		});
+
+		it("blocks data: URI scheme", () => {
+			const doc = "text\n\n![x](data:text/html,<script>alert(1)</script>)\n\nmore";
+			const view = createView(doc, 0);
+			const img = view.dom.querySelector(".cm-md-image");
+			expect(img).toBeNull();
+		});
+
+		it("renders multiple images in one document", () => {
+			const doc = "![a](https://example.com/1.png)\n\n![b](https://example.com/2.png)\n\ntext";
+			const view = createView(doc, doc.length);
+			const imgs = view.dom.querySelectorAll(".cm-md-image");
+			expect(imgs.length).toBe(2);
+		});
+	});
+
 	describe("horizontal rules", () => {
 		it("hides --- text and adds hr line class when cursor is outside", () => {
 			const doc = "above\n\n---\n\nbelow";
