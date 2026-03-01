@@ -86,7 +86,7 @@ Keep the IPC surface small — well-defined Tauri commands.
 - `save_file(rel_path, contents)` — atomic write (temp → fsync → rename → fsync dir).
 - `delete_file(rel_path)` — moves file to system Trash (via `trash` crate), removes from search index.
 - `rename_file(old_rel_path, new_rel_path)` — renames, fails if destination exists.
-- `sanitize_filename(name) -> String` — deterministic sanitization (lowercase, spaces→dashes, strip illegal chars).
+- `sanitize_filename(name) -> String` — deterministic sanitization (strip illegal chars, collapse whitespace/dashes, preserve user input).
 
 All paths are relative to vault root. `resolve_path()` rejects `..`, absolute paths, and other traversal via `Path::components()` checking. Tauri 2 auto-converts camelCase JS args to snake_case Rust params.
 
@@ -100,12 +100,12 @@ All paths are relative to vault root. `resolve_path()` rejects `..`, absolute pa
 ### Title Is the Filename
 - No frontmatter, no title field in file contents. The filename stem IS the note's identity.
 - The editor shows an **editable title `<input>`** injected into CM6's `.cm-scroller` (Obsidian-style inline title). It scrolls with the document. Arrow keys navigate between title and editor as if they're one surface.
-- Display: dashes/underscores → spaces (`project-kickoff.md` → "project kickoff"). Display-only; file on disk unchanged.
+- Display: underscores → spaces (`project_kickoff.md` → "project kickoff"). Dashes are preserved as-is. Display-only; file on disk unchanged.
 - Editing the title triggers a file rename on blur/Enter. Escape reverts. Rename fails gracefully if destination exists.
 - If wikilinks reference the old name, a confirmation dialog (`WikilinkUpdateDialog`) offers bulk rewrite of all references.
 
 ### Filename Sanitization
-A single deterministic function (defined in Rust, exposed via Tauri command) used everywhere: spaces → dashes, strip illegal characters (`/ \ : * ? " < > |`), lowercase everything.
+A single deterministic function (defined in Rust, exposed via Tauri command) used everywhere: strip illegal characters (`/ \ : * ? " < > |`), collapse consecutive whitespace/dashes, preserve spaces and Unicode characters. Filenames use the text the user provides — spaces are not converted to dashes.
 
 ### Inline Rendering (Not WYSIWYG)
 The editor uses CodeMirror decorations to render markdown inline (bold appears bold, headers resize, links styled) while raw markdown is revealed when the cursor enters an element. Implemented in `src/lib/editor/inlineRendering.ts`.
