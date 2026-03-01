@@ -434,11 +434,18 @@
 		isRenaming = true;
 		try {
 			await renameFile(oldPath, newPath);
-			if (seq !== renameSeq || currentPath !== oldPath) return;
 
+			// Always update path and autosave after a successful rename —
+			// the file has moved on disk regardless of sequence state.
 			currentPath = newPath;
 			titleDraft = displayName(newPath);
 			autosave.setOpenedFile(newPath, doc);
+			fileEntries = fileEntries.map((f) =>
+				f.path === oldPath ? { path: newPath, stem: displayName(newPath) } : f,
+			);
+			recentPaths = recentPaths.map((p) => (p === oldPath ? newPath : p));
+
+			if (seq !== renameSeq) return;
 
 			// Re-fetch backlinks for new filename
 			const newStemForBacklinks = newPath.replace(/\.md$/, "").split("/").pop()!;
