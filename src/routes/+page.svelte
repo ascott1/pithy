@@ -82,7 +82,8 @@
 	let backlinkCount = $state(0);
 	let backlinkRefs = $state<WikilinkReference[]>([]);
 	let showBacklinksPopover = $state(false);
-	let wordCount = $derived(doc.trim() ? doc.trim().split(/\s+/).length : 0);
+	let wordCount = $state(0);
+	let wordCountTimer: ReturnType<typeof setTimeout> | null = null;
 
 	let titleDraft = $state("");
 	let isRenaming = $state(false);
@@ -145,7 +146,8 @@
 	}
 
 	onMount(async () => {
-		const info = await getConfigInfo();
+		const [info, files] = await Promise.all([getConfigInfo(), listFiles()]);
+
 		if (info.warning) configWarning = info.warning;
 		vaultDir = info.vaultDir;
 
@@ -170,18 +172,18 @@
 		}
 		document.head.appendChild(themeStyle);
 
-		unlistenConfig = await listen("open-config", () => {
-			void openConfig();
-		});
-
 		const appWindow = getCurrentWebviewWindow();
-		unlistenDragDrop = await appWindow.onDragDropEvent((event) => {
-			if (event.payload.type === "drop") {
-				void handleImageDrop(event.payload.paths, event.payload.position);
-			}
-		});
+		[unlistenConfig, unlistenDragDrop] = await Promise.all([
+			listen("open-config", () => {
+				void openConfig();
+			}),
+			appWindow.onDragDropEvent((event) => {
+				if (event.payload.type === "drop") {
+					void handleImageDrop(event.payload.paths, event.payload.position);
+				}
+			}),
+		]);
 
-		const files = await listFiles();
 		fileEntries = buildFileEntries(files);
 		if (files.length > 0) {
 			await openFile(files[0]);
@@ -225,6 +227,18 @@
 	$effect(() => {
 		window.addEventListener("keydown", handleGlobalKeydown);
 		return () => window.removeEventListener("keydown", handleGlobalKeydown);
+	});
+
+	$effect(() => {
+		const d = doc;
+		if (wordCountTimer) clearTimeout(wordCountTimer);
+		wordCountTimer = setTimeout(() => {
+			const trimmed = d.trim();
+			wordCount = trimmed ? trimmed.split(/\s+/).length : 0;
+		}, 300);
+		return () => {
+			if (wordCountTimer) clearTimeout(wordCountTimer);
+		};
 	});
 
 	function displayName(path: string): string {
@@ -381,15 +395,15 @@
 		backlinkRefs = [];
 		showBacklinksPopover = false;
 
-		const contents = await readFile(path);
+		const stem = path.replace(/\.md$/, "").split("/").pop()!;
+		const [contents, refs] = await Promise.all([
+			readFile(path),
+			findWikilinkReferences(stem),
+		]);
 		if (seq !== openSeq) return;
 
 		doc = contents;
 		autosave.setOpenedFile(path, contents);
-
-		const stem = path.replace(/\.md$/, "").split("/").pop()!;
-		const refs = await findWikilinkReferences(stem);
-		if (seq !== openSeq) return;
 		backlinkRefs = refs;
 		backlinkCount = refs.length;
 	}
@@ -447,16 +461,16 @@
 
 			if (seq !== renameSeq) return;
 
-			// Re-fetch backlinks for new filename
-			const newStemForBacklinks = newPath.replace(/\.md$/, "").split("/").pop()!;
-			const newRefs = await findWikilinkReferences(newStemForBacklinks);
+			// Fetch backlinks for both old and new stems in parallel
+			const oldStem = oldPath.replace(/\.md$/, "").split("/").pop()!;
+			const newStem = newPath.replace(/\.md$/, "").split("/").pop()!;
+			const [newRefs, refs] = await Promise.all([
+				findWikilinkReferences(newStem),
+				findWikilinkReferences(oldStem),
+			]);
 			backlinkRefs = newRefs;
 			backlinkCount = newRefs.length;
 
-			// Update wikilinks referencing the old name
-			const oldStem = oldPath.replace(/\.md$/, "").split("/").pop()!;
-			const newStem = newPath.replace(/\.md$/, "").split("/").pop()!;
-			const refs = await findWikilinkReferences(oldStem);
 			if (refs.length > 0) {
 				if (autoUpdateLinks) {
 					const modified = await updateWikilinkReferences(oldStem, newStem);

@@ -3,6 +3,7 @@ import {
 	type DecorationSet,
 	EditorView,
 	ViewPlugin,
+	type ViewUpdate,
 	WidgetType,
 } from "@codemirror/view";
 import {
@@ -738,28 +739,39 @@ function buildDecorations(state: EditorState): DecorationSet {
 		},
 	});
 
-	// --- Tag scanning (post-tree, regex-based) ---
-	for (let n = 1; n <= doc.lines; n++) {
-		const line = doc.line(n);
-		TAG_RE.lastIndex = 0;
-		let m: RegExpExecArray | null;
-		while ((m = TAG_RE.exec(line.text)) !== null) {
-			let from = line.from + m.index;
-			let to = from + m[0].length;
-			// Trim trailing `-` and `/`
-			while (to > from + 1) {
-				const ch = doc.sliceString(to - 1, to);
-				if (ch === "-" || ch === "/") {
-					to--;
-				} else {
-					break;
+	return Decoration.set(decorations, true);
+}
+
+function buildTagDecorations(view: EditorView): DecorationSet {
+	const decorations: Range<Decoration>[] = [];
+	const { state } = view;
+	const doc = state.doc;
+	const selections = state.selection.ranges;
+	const tree = syntaxTree(state);
+
+	for (const { from, to } of view.visibleRanges) {
+		const startLine = doc.lineAt(from);
+		const endLine = doc.lineAt(to);
+		for (let n = startLine.number; n <= endLine.number; n++) {
+			const line = doc.line(n);
+			TAG_RE.lastIndex = 0;
+			let m: RegExpExecArray | null;
+			while ((m = TAG_RE.exec(line.text)) !== null) {
+				let tagFrom = line.from + m.index;
+				let tagTo = tagFrom + m[0].length;
+				while (tagTo > tagFrom + 1) {
+					const ch = doc.sliceString(tagTo - 1, tagTo);
+					if (ch === "-" || ch === "/") {
+						tagTo--;
+					} else {
+						break;
+					}
 				}
+				if (tagTo - tagFrom < 2) continue;
+				if (selectionIntersects(tagFrom, tagTo, selections)) continue;
+				if (isInsideExcludedContext(tree, tagFrom)) continue;
+				decorations.push(MARK_TAG.range(tagFrom, tagTo));
 			}
-			// Must have at least `#` + one char
-			if (to - from < 2) continue;
-			if (selectionIntersects(from, to, selections)) continue;
-			if (isInsideExcludedContext(tree, from)) continue;
-			decorations.push(MARK_TAG.range(from, to));
 		}
 	}
 
@@ -789,12 +801,26 @@ const inlineDecoField = StateField.define<DecorationSet>({
 	provide: (f) => EditorView.decorations.from(f),
 });
 
-// ViewPlugin retained only for event handlers (link clicks, meta-key tracking).
+// ViewPlugin for tag decorations (scoped to visible ranges) and event handlers.
 const inlineRenderingPlugin = ViewPlugin.fromClass(
 	class {
-		constructor(_view: EditorView) {}
+		decorations: DecorationSet;
+		constructor(view: EditorView) {
+			this.decorations = buildTagDecorations(view);
+		}
+		update(update: ViewUpdate) {
+			if (
+				update.docChanged ||
+				update.selectionSet ||
+				update.viewportChanged ||
+				syntaxTree(update.state) !== syntaxTree(update.startState)
+			) {
+				this.decorations = buildTagDecorations(update.view);
+			}
+		}
 	},
 	{
+	decorations: (v) => v.decorations,
 	eventHandlers: {
 		mousedown(event: MouseEvent, view: EditorView) {
 			if (!event.metaKey || event.button !== 0) return false;

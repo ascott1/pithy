@@ -103,12 +103,13 @@
     if (isTagMode || isSearchMode) return [];
     const q = query.trim();
     if (!q) {
-      const recentSet = new Set(recents);
+      const fileMap = new Map(files.map((f) => [f.path, f]));
       const recentEntries: FileEntry[] = [];
       for (const r of recents) {
-        const entry = files.find((f) => f.path === r);
+        const entry = fileMap.get(r);
         if (entry) recentEntries.push(entry);
       }
+      const recentSet = new Set(recents);
       const rest = files
         .filter((f) => !recentSet.has(f.path))
         .slice(0, MAX_RESULTS - recentEntries.length);
