@@ -110,7 +110,7 @@
 	}
 
 	function stemDisplay(stem: string): string {
-		return stem.replaceAll("-", " ").replaceAll("_", " ");
+		return stem.replaceAll("_", " ");
 	}
 </script>
 

@@ -14,7 +14,7 @@
 	let totalCount = $derived(references.reduce((sum, r) => sum + r.count, 0));
 
 	function displayPath(relPath: string): string {
-		return relPath.replace(/\.md$/, "").replaceAll("-", " ").replaceAll("_", " ");
+		return relPath.replace(/\.md$/, "").replaceAll("_", " ");
 	}
 
 	function handleKeydown(e: KeyboardEvent) {

@@ -18,8 +18,8 @@ describe("BacklinksPopover", () => {
 			onselect: vi.fn(),
 			onclose: vi.fn(),
 		});
-		expect(screen.getByText("project kickoff")).toBeTruthy();
-		expect(screen.getByText("meeting notes")).toBeTruthy();
+		expect(screen.getByText("project-kickoff")).toBeTruthy();
+		expect(screen.getByText("meeting-notes")).toBeTruthy();
 		expect(screen.getByText("ideas")).toBeTruthy();
 	});
 

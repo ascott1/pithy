@@ -143,7 +143,7 @@
 
   let currentStem = $derived(
     currentPath
-      ? currentPath.replace(/\.md$/, "").split("/").pop()!.replaceAll("-", " ").replaceAll("_", " ")
+      ? currentPath.replace(/\.md$/, "").split("/").pop()!.replaceAll("_", " ")
       : null,
   );
 
@@ -169,7 +169,7 @@
   });
 
   function stemDisplay(stem: string): string {
-    return stem.replaceAll("-", " ").replaceAll("_", " ");
+    return stem.replaceAll("_", " ");
   }
 
   function isDailyNote(path: string): boolean {
