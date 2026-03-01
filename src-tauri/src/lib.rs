@@ -76,6 +76,7 @@ pub fn run() {
             fs::sanitize_filename,
             fs::find_wikilink_references,
             fs::update_wikilink_references,
+            fs::copy_image_to_assets,
             config::get_config_info,
             config::read_config_file,
             config::write_config_file,

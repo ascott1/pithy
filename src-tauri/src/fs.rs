@@ -1,9 +1,12 @@
 use crate::config::AppState;
 use crate::search::{IndexOp, SearchState};
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use walkdir::WalkDir;
+
+/// 200 MB — generous limit to prevent accidental multi-GB copies.
+const MAX_IMAGE_BYTES: u64 = 200 * 1024 * 1024;
 
 fn resolve_path(vault_dir: &Path, rel_path: &str) -> Result<PathBuf, String> {
     let rel = Path::new(rel_path);
@@ -161,6 +164,116 @@ fn find_wikilinks(content: &str) -> Vec<(usize, usize)> {
 /// Convert a sanitized stem back to display form (dashes → spaces).
 fn stem_to_display(stem: &str) -> String {
     stem.replace('-', " ")
+}
+
+const ALLOWED_IMAGE_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico",
+];
+
+/// Sanitize an image filename: lowercase stem, strip illegal chars, validate extension.
+/// Returns `(sanitized_stem, extension)`.
+fn sanitize_image_filename(name: &str) -> Result<(String, String), String> {
+    let path = Path::new(name);
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .ok_or_else(|| "File has no extension".to_string())?;
+
+    if !ALLOWED_IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!("Unsupported image type: .{ext}"));
+    }
+
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("image");
+
+    // Reuse sanitization logic: lowercase, strip illegal chars, collapse separators
+    let mut out = String::with_capacity(stem.len());
+    let mut prev_dash = false;
+    for ch in stem.chars() {
+        if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+            continue;
+        }
+        if ch.is_whitespace() || ch == '_' || ch == '-' {
+            if !prev_dash && !out.is_empty() {
+                out.push('-');
+                prev_dash = true;
+            }
+            continue;
+        }
+        out.push(ch.to_ascii_lowercase());
+        prev_dash = false;
+    }
+    let out = out.trim_matches('-').to_string();
+    let sanitized = if out.is_empty() { "image".to_string() } else { out };
+
+    Ok((sanitized, ext))
+}
+
+#[tauri::command]
+pub fn copy_image_to_assets(
+    source_path: String,
+    filename: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let source = Path::new(&source_path);
+    if !source.is_file() {
+        return Err("Source is not a file".into());
+    }
+
+    // Validate extension on the actual source file, not just the caller-supplied filename
+    let source_ext = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .ok_or_else(|| "Source file has no extension".to_string())?;
+    if !ALLOWED_IMAGE_EXTENSIONS.contains(&source_ext.as_str()) {
+        return Err(format!("Source file type not allowed: .{source_ext}"));
+    }
+
+    // Check file size before copying
+    let metadata = fs::metadata(source).map_err(|e| e.to_string())?;
+    if metadata.len() > MAX_IMAGE_BYTES {
+        return Err("Image exceeds maximum size of 200 MB".into());
+    }
+
+    let (stem, ext) = sanitize_image_filename(&filename)?;
+
+    let assets_dir = state.config.vault_dir.join("_assets");
+    fs::create_dir_all(&assets_dir).map_err(|e| e.to_string())?;
+
+    // Atomic conflict resolution: create_new fails if file already exists (no TOCTOU race)
+    let dest_name = copy_to_unique(&assets_dir, &stem, &ext, source)?;
+
+    Ok(format!("_assets/{dest_name}"))
+}
+
+/// Copy `source` into `dir/{stem}.{ext}`, appending `-1`, `-2`, etc. on conflict.
+/// Uses `create_new(true)` to avoid TOCTOU races between existence check and write.
+fn copy_to_unique(dir: &Path, stem: &str, ext: &str, source: &Path) -> Result<String, String> {
+    let mut dest_name = format!("{stem}.{ext}");
+    let mut counter = 0u32;
+
+    loop {
+        let dest = dir.join(&dest_name);
+        match OpenOptions::new().write(true).create_new(true).open(&dest) {
+            Ok(dest_file) => {
+                drop(dest_file);
+                fs::copy(source, &dest).map_err(|e| {
+                    let _ = fs::remove_file(&dest);
+                    e.to_string()
+                })?;
+                return Ok(dest_name);
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                counter += 1;
+                dest_name = format!("{stem}-{counter}.{ext}");
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
 }
 
 #[tauri::command]
@@ -487,6 +600,68 @@ mod tests {
     fn stem_to_display_basic() {
         assert_eq!(stem_to_display("hello-world"), "hello world");
         assert_eq!(stem_to_display("simple"), "simple");
+    }
+
+    #[test]
+    fn sanitize_image_filename_basic() {
+        let (stem, ext) = sanitize_image_filename("My Screenshot.png").unwrap();
+        assert_eq!(stem, "my-screenshot");
+        assert_eq!(ext, "png");
+    }
+
+    #[test]
+    fn sanitize_image_filename_preserves_extension() {
+        let (stem, ext) = sanitize_image_filename("photo.JPEG").unwrap();
+        assert_eq!(stem, "photo");
+        assert_eq!(ext, "jpeg");
+    }
+
+    #[test]
+    fn sanitize_image_filename_strips_illegal_chars() {
+        let (stem, ext) = sanitize_image_filename("bad:file*name?.png").unwrap();
+        assert_eq!(stem, "badfilename");
+        assert_eq!(ext, "png");
+    }
+
+    #[test]
+    fn sanitize_image_filename_rejects_unsupported() {
+        assert!(sanitize_image_filename("doc.pdf").is_err());
+        assert!(sanitize_image_filename("script.js").is_err());
+    }
+
+    #[test]
+    fn sanitize_image_filename_rejects_no_extension() {
+        assert!(sanitize_image_filename("noext").is_err());
+    }
+
+    #[test]
+    fn sanitize_image_filename_empty_stem_becomes_image() {
+        let (stem, ext) = sanitize_image_filename("___.png").unwrap();
+        assert_eq!(stem, "image");
+        assert_eq!(ext, "png");
+    }
+
+    #[test]
+    fn copy_image_conflict_resolution() {
+        let dir = tempdir().unwrap();
+        let assets = dir.path().join("_assets");
+        fs::create_dir_all(&assets).unwrap();
+
+        // Create a source image to copy from
+        let source = dir.path().join("source.png");
+        fs::write(&source, b"image data").unwrap();
+
+        // First copy: no conflict
+        let name = copy_to_unique(&assets, "photo", "png", &source).unwrap();
+        assert_eq!(name, "photo.png");
+
+        // Second copy: conflicts with photo.png, gets -1
+        let name = copy_to_unique(&assets, "photo", "png", &source).unwrap();
+        assert_eq!(name, "photo-1.png");
+
+        // Third copy: conflicts with photo.png and photo-1.png, gets -2
+        let name = copy_to_unique(&assets, "photo", "png", &source).unwrap();
+        assert_eq!(name, "photo-2.png");
     }
 
     #[test]

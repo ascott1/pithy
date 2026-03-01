@@ -6,6 +6,7 @@
 	import SearchPanel from "$lib/SearchPanel.svelte";
 	import InfoBar from "$lib/InfoBar.svelte";
 	import BacklinksPopover from "$lib/BacklinksPopover.svelte";
+	import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 	import {
 		listFiles,
 		readFile,
@@ -15,6 +16,7 @@
 		sanitizeFilename,
 		findWikilinkReferences,
 		updateWikilinkReferences,
+		copyImageToAssets,
 		type WikilinkReference,
 	} from "$lib/tauri/fs";
 	import {
@@ -99,11 +101,48 @@
 		path: string;
 		references: WikilinkReference[];
 	} | null>(null);
-	let editorApi: { focus: () => void; focusTitle: () => void } | null = null;
+	let editorApi: { focus: () => void; focusTitle: () => void; insertAtCoords: (text: string, coords: { x: number; y: number }) => boolean; insertAtCursor: (text: string) => void } | null = null;
 
 	let openSeq = 0;
 	let renameSeq = 0;
 	let unlistenConfig: UnlistenFn | null = null;
+	let unlistenDragDrop: UnlistenFn | null = null;
+
+	const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
+
+	function isImageFile(path: string): boolean {
+		const ext = path.split(".").pop()?.toLowerCase() ?? "";
+		return IMAGE_EXTENSIONS.has(ext);
+	}
+
+	async function handleImageDrop(paths: string[], position: { x: number; y: number }) {
+		if (mode !== "vault" || !currentPath || !editorApi) return;
+
+		const imagePaths = paths.filter(isImageFile);
+		if (imagePaths.length === 0) return;
+
+		const markdownParts: string[] = [];
+		for (const sourcePath of imagePaths) {
+			const filename = sourcePath.split("/").pop() ?? "image.png";
+			try {
+				const relPath = await copyImageToAssets(sourcePath, filename);
+				// Derive alt text from the sanitized filename in relPath (not raw filename)
+				const sanitizedStem = relPath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "image";
+				const alt = sanitizedStem.replaceAll("-", " ");
+				markdownParts.push(`![${alt}](${relPath})`);
+			} catch (e) {
+				console.error("Failed to copy image:", e);
+			}
+		}
+
+		if (markdownParts.length > 0) {
+			const text = markdownParts.join("\n");
+			// Try inserting at drop coords; fall back to cursor position
+			if (!editorApi.insertAtCoords(text, position)) {
+				editorApi.insertAtCursor(text);
+			}
+		}
+	}
 
 	onMount(async () => {
 		const info = await getConfigInfo();
@@ -135,6 +174,13 @@
 			void openConfig();
 		});
 
+		const appWindow = getCurrentWebviewWindow();
+		unlistenDragDrop = await appWindow.onDragDropEvent((event) => {
+			if (event.payload.type === "drop") {
+				void handleImageDrop(event.payload.paths, event.payload.position);
+			}
+		});
+
 		const files = await listFiles();
 		fileEntries = buildFileEntries(files);
 		if (files.length > 0) {
@@ -145,6 +191,7 @@
 
 	onDestroy(() => {
 		unlistenConfig?.();
+		unlistenDragDrop?.();
 	});
 
 	function handleGlobalKeydown(e: KeyboardEvent) {

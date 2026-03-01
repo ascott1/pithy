@@ -222,8 +222,10 @@ function blockquotePrefixLen(text: string): number {
  * Mirrors the logic from resolve_path() in fs.rs.
  */
 function isRelativePathSafe(url: string): boolean {
-	if (url.startsWith("/") || url.startsWith("\\")) return false;
-	const segments = url.split(/[/\\]/);
+	let decoded: string;
+	try { decoded = decodeURIComponent(url); } catch { return false; }
+	if (decoded.startsWith("/") || decoded.startsWith("\\")) return false;
+	const segments = decoded.split(/[/\\]/);
 	return segments.every((s) => s !== ".." && s !== ".");
 }
 
@@ -385,7 +387,6 @@ function buildDecorations(state: EditorState): DecorationSet {
 
 			// --- Images ---
 			if (name === "Image") {
-				if (active) return false;
 				const cur = node.node.cursor();
 				let url = "";
 				let alt = "";
@@ -418,11 +419,23 @@ function buildDecorations(state: EditorState): DecorationSet {
 						state.facet(vaultRootFacet),
 					);
 					if (resolvedSrc) {
-						decorations.push(
-							Decoration.replace({
-								widget: new ImageWidget(resolvedSrc, alt),
-							}).range(node.from, node.to),
-						);
+						if (active) {
+							// Cursor on image: show raw markdown + image below
+							decorations.push(
+								Decoration.widget({
+									widget: new ImageWidget(resolvedSrc, alt),
+									block: true,
+									side: 1,
+								}).range(node.to),
+							);
+						} else {
+							// Cursor away: replace entire syntax with image
+							decorations.push(
+								Decoration.replace({
+									widget: new ImageWidget(resolvedSrc, alt),
+								}).range(node.from, node.to),
+							);
+						}
 					}
 				}
 				return false;

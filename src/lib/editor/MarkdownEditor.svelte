@@ -44,7 +44,7 @@
 		renameError?: string | null;
 		onchange?: (doc: string) => void;
 		onsave?: () => void;
-		onready?: (api: { focus: () => void; focusTitle: () => void }) => void;
+		onready?: (api: { focus: () => void; focusTitle: () => void; insertAtCoords: (text: string, coords: { x: number; y: number }) => boolean; insertAtCursor: (text: string) => void }) => void;
 		ontitlechange?: (value: string) => void;
 		ontitleblur?: () => void;
 		ontitlekeydown?: (e: KeyboardEvent) => void;
@@ -417,6 +417,26 @@
 						onchange?.(update.state.doc.toString());
 					}
 				}),
+				EditorView.domEventHandlers({
+					dragover(event) {
+						if (event.dataTransfer?.types.includes("Files")) {
+							event.preventDefault();
+							event.dataTransfer.dropEffect = "copy";
+						}
+					},
+					drop(event) {
+						// Only suppress default for image files; let non-images fall through
+						const files = Array.from(event.dataTransfer?.files ?? []);
+						const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
+						const hasImages = files.some((f) => {
+							const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+							return IMAGE_EXTS.has(ext);
+						});
+						if (hasImages) {
+							event.preventDefault();
+						}
+					},
+				}),
 				theme,
 			],
 		});
@@ -479,6 +499,19 @@
 				view?.dispatch({ selection: { anchor: 0 } });
 			},
 			focusTitle: () => focusTitleInput(),
+			insertAtCoords: (text: string, coords: { x: number; y: number }) => {
+				if (!view) return false;
+				const pos = view.posAtCoords(coords);
+				if (pos == null) return false;
+				view.dispatch({ changes: { from: pos, insert: text } });
+				return true;
+			},
+			insertAtCursor: (text: string) => {
+				if (!view) return;
+				const pos = view.state.selection.main.head;
+				view.dispatch({ changes: { from: pos, insert: text } });
+				view.focus();
+			},
 		});
 
 		return () => {

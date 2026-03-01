@@ -36,3 +36,7 @@ export function findWikilinkReferences(oldStem: string): Promise<WikilinkReferen
 export function updateWikilinkReferences(oldStem: string, newStem: string): Promise<string[]> {
 	return invoke<string[]>("update_wikilink_references", { oldStem, newStem });
 }
+
+export function copyImageToAssets(sourcePath: string, filename: string): Promise<string> {
+	return invoke<string>("copy_image_to_assets", { sourcePath, filename });
+}

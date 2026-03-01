@@ -218,12 +218,15 @@ describe("inlineRendering", () => {
 			expect(img?.getAttribute("alt")).toBe("alt");
 		});
 
-		it("shows raw syntax when cursor is inside image", () => {
+		it("shows raw syntax AND rendered image when cursor is inside image", () => {
 			const doc = "![alt](https://example.com/img.png)";
 			const view = createView(doc, 5);
-			const img = view.dom.querySelector(".cm-md-image");
-			expect(img).toBeNull();
+			// Raw syntax still visible
 			expect(getTextContent(view)).toContain("![alt]");
+			// Image also rendered below
+			const img = view.dom.querySelector(".cm-md-image");
+			expect(img).not.toBeNull();
+			expect(img?.getAttribute("src")).toBe("https://example.com/img.png");
 		});
 
 		it("handles empty alt text", () => {
