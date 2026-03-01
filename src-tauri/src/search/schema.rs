@@ -42,16 +42,28 @@ pub fn open_or_create_index(index_dir: &Path, schema: &Schema) -> Result<Index, 
     std::fs::create_dir_all(index_dir)
         .map_err(|e| format!("Failed to create index directory: {e}"))?;
 
-    // Remove stale writer lock from previous crash (single-instance desktop app)
-    let lock_path = index_dir.join(".tantivy-writer.lock");
-    if lock_path.exists() {
-        let _ = std::fs::remove_file(&lock_path);
+    match Index::open_in_dir(index_dir) {
+        Ok(index) => Ok(index),
+        Err(_open_err) => {
+            // If opening failed, try creating. If that also fails due to a stale
+            // lock from a previous crash, remove the lock and retry once.
+            match Index::create_in_dir(index_dir, schema.clone()) {
+                Ok(index) => Ok(index),
+                Err(_create_err) => {
+                    let lock_path = index_dir.join(".tantivy-writer.lock");
+                    if lock_path.exists() {
+                        eprintln!(
+                            "Removing stale Tantivy lock file (likely from a previous crash)"
+                        );
+                        let _ = std::fs::remove_file(&lock_path);
+                    }
+                    // Final attempt — if this fails, propagate the error
+                    Index::create_in_dir(index_dir, schema.clone())
+                        .map_err(|e| format!("Failed to create search index: {e}"))
+                }
+            }
+        }
     }
-
-    Index::open_in_dir(index_dir).or_else(|_| {
-        Index::create_in_dir(index_dir, schema.clone())
-            .map_err(|e| format!("Failed to create search index: {e}"))
-    })
 }
 
 #[cfg(test)]
