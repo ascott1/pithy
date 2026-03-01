@@ -589,6 +589,7 @@
 		files={fileEntries}
 		recents={recentPaths}
 		{currentPath}
+		dailyDir={dailyConfig.dir}
 		onselect={(path) => void openNote(path)}
 		oncreate={(name) => void createNote(name)}
 		ondelete={() => { showSwitcher = false; void deleteCurrentNote(); }}

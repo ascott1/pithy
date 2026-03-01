@@ -3,6 +3,12 @@
   import { listTags, searchQuery } from "$lib/tauri/search";
   import type { SearchHit } from "$lib/tauri/search";
   import { cleanSnippet } from "$lib/snippets";
+  import FileText from "phosphor-svelte/lib/FileText";
+  import Calendar from "phosphor-svelte/lib/Calendar";
+  import Plus from "phosphor-svelte/lib/Plus";
+  import Trash from "phosphor-svelte/lib/Trash";
+  import Hash from "phosphor-svelte/lib/Hash";
+  import MagnifyingGlass from "phosphor-svelte/lib/MagnifyingGlass";
 
   interface FileEntry {
     path: string;
@@ -13,6 +19,7 @@
     files: FileEntry[];
     recents: string[];
     currentPath: string | null;
+    dailyDir: string;
     onselect: (path: string) => void;
     oncreate: (name: string) => void;
     ondelete: () => void;
@@ -20,7 +27,7 @@
     onclose: () => void;
   }
 
-  let { files, recents, currentPath, onselect, oncreate, ondelete, onsearch, onclose }: Props = $props();
+  let { files, recents, currentPath, dailyDir, onselect, oncreate, ondelete, onsearch, onclose }: Props = $props();
 
   let query = $state("");
   let selectedIndex = $state(0);
@@ -165,6 +172,10 @@
     return stem.replaceAll("-", " ").replaceAll("_", " ");
   }
 
+  function isDailyNote(path: string): boolean {
+    return path.startsWith(dailyDir + "/");
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -206,22 +217,33 @@
       onclose();
     }
   }
+
+  let modeChip = $derived.by(() => {
+    if (isTagMode) return "Tags";
+    if (isSearchMode) return "Search";
+    return null;
+  });
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="switcher-backdrop" onclick={handleBackdropClick}>
   <div class="switcher-panel">
-    <input
-      bind:this={inputEl}
-      bind:value={query}
-      onkeydown={handleKeydown}
-      class="switcher-input"
-      type="text"
-      placeholder="Open or create a note, # tags, / search…"
-      spellcheck="false"
-      autocomplete="off"
-    />
+    <div class="input-row">
+      {#if modeChip}
+        <span class="mode-chip">{modeChip}</span>
+      {/if}
+      <input
+        bind:this={inputEl}
+        bind:value={query}
+        onkeydown={handleKeydown}
+        class="switcher-input"
+        type="text"
+        placeholder="Open or create a note, # tags, / search…"
+        spellcheck="false"
+        autocomplete="off"
+      />
+    </div>
 
     {#if isTagMode}
       <div class="switcher-results" role="listbox">
@@ -235,6 +257,7 @@
               onclick={() => onsearch(`#${tag}`)}
               onpointerenter={() => (selectedIndex = i)}
             >
+              <span class="item-icon"><Hash size={16} weight="light" /></span>
               <span class="item-tag">#{tag}</span>
             </button>
           {/each}
@@ -256,6 +279,13 @@
               onclick={() => onselect(result.path)}
               onpointerenter={() => (selectedIndex = i)}
             >
+              <span class="item-icon">
+                {#if isDailyNote(result.path)}
+                  <Calendar size={16} weight="light" />
+                {:else}
+                  <FileText size={16} weight="light" />
+                {/if}
+              </span>
               <span class="item-stem">{result.stem}</span>
               {#if result.path.includes("/")}
                 <span class="item-dir">{result.path.replace(/\/[^/]+$/, "")}</span>
@@ -275,7 +305,7 @@
             onclick={() => oncreate(query.trim())}
             onpointerenter={() => (selectedIndex = createIndex)}
           >
-            <span class="create-plus">+</span>
+            <span class="item-icon create-icon"><Plus size={16} weight="light" /></span>
             <span class="create-text">Create "{query.trim()}"</span>
           </button>
         {/if}
@@ -291,8 +321,9 @@
             onclick={() => ondelete()}
             onpointerenter={() => (selectedIndex = deleteIndex)}
           >
-            <span class="delete-icon">&#x2717;</span>
+            <span class="item-icon delete-icon"><Trash size={16} weight="light" /></span>
             <span class="delete-text">Delete "{currentStem}"</span>
+            <kbd class="shortcut-badge">{"\u2318\u232B"}</kbd>
           </button>
         {/if}
 
@@ -308,6 +339,7 @@
               onclick={() => onselect(hit.path)}
               onpointerenter={() => (selectedIndex = flatIndex)}
             >
+              <span class="item-icon"><MagnifyingGlass size={16} weight="light" /></span>
               <div class="content-hit">
                 <span class="content-stem">{stemDisplay(hit.filenameStem)}</span>
                 {#if hit.snippet}
@@ -321,6 +353,21 @@
     {:else if isSearchMode && searchText.trim()}
       <div class="switcher-empty">No results</div>
     {/if}
+
+    <div class="switcher-footer">
+      <div class="footer-group">
+        <kbd class="footer-key">&uarr;&darr;</kbd>
+        <span class="footer-label">navigate</span>
+      </div>
+      <div class="footer-group">
+        <kbd class="footer-key">&crarr;</kbd>
+        <span class="footer-label">open</span>
+      </div>
+      <div class="footer-group">
+        <kbd class="footer-key">esc</kbd>
+        <span class="footer-label">close</span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -353,23 +400,48 @@
     align-self: flex-start;
   }
 
+  .input-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-bottom: 1px solid color-mix(in srgb, var(--editor-text) 8%, transparent);
+    padding-left: 18px;
+  }
+
+  .mode-chip {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent-color) 15%, transparent);
+    color: var(--accent-color);
+    line-height: 1.4;
+    letter-spacing: 0.02em;
+  }
+
   .switcher-input {
-    width: 100%;
-    padding: 14px 18px;
+    flex: 1;
+    min-width: 0;
+    padding: 14px 18px 14px 0;
     font-family: inherit;
     font-size: 1.0625rem;
-    font-weight: 400;
+    font-weight: 500;
     letter-spacing: -0.01em;
     color: var(--editor-text);
     background: transparent;
     border: none;
-    border-bottom: 1px solid color-mix(in srgb, var(--editor-text) 8%, transparent);
     outline: none;
+  }
+
+  .input-row:has(.mode-chip) .switcher-input {
+    padding-left: 0;
   }
 
   .switcher-input::placeholder {
     color: var(--editor-text);
     opacity: 0.3;
+    font-weight: 400;
   }
 
   .switcher-results {
@@ -380,9 +452,9 @@
   .switcher-item {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     width: 100%;
-    padding: 10px 12px;
+    padding: 8px 12px;
     font-family: inherit;
     font-size: 0.875rem;
     font-weight: 400;
@@ -404,8 +476,17 @@
     background: color-mix(in srgb, var(--editor-text) 12%, transparent);
   }
 
+  .item-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    opacity: 0.4;
+    color: var(--editor-text);
+  }
+
   .item-stem {
     flex: 1;
+    font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -419,29 +500,41 @@
   }
 
   .item-tag {
+    flex: 1;
     opacity: 0.7;
+  }
+
+  .shortcut-badge {
+    flex-shrink: 0;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 400;
+    padding: 1px 6px;
+    border: 1px solid color-mix(in srgb, var(--editor-text) 10%, transparent);
+    border-radius: 4px;
+    opacity: 0.35;
+    background: transparent;
+    color: var(--editor-text);
+    line-height: 1.4;
   }
 
   .section-divider {
     padding: 10px 12px 4px;
-    font-size: 0.75rem;
+    font-size: 11px;
     font-weight: 400;
-    letter-spacing: -0.006em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
     opacity: 0.35;
     border-top: 1px solid color-mix(in srgb, var(--editor-text) 8%, transparent);
-    margin-top: 2px;
+    margin-top: 10px;
   }
 
   .create-item {
-    gap: 10px;
+    gap: 8px;
   }
 
-  .create-plus {
-    flex-shrink: 0;
-    font-size: 1rem;
-    font-weight: 300;
+  .create-icon {
     opacity: 0.4;
-    line-height: 1;
   }
 
   .create-text {
@@ -449,18 +542,16 @@
   }
 
   .delete-item {
-    gap: 10px;
+    gap: 8px;
   }
 
   .delete-icon {
-    flex-shrink: 0;
-    font-size: 0.875rem;
     opacity: 0.5;
     color: var(--error-color);
-    line-height: 1;
   }
 
   .delete-text {
+    flex: 1;
     opacity: 0.65;
     color: var(--error-color);
   }
@@ -474,6 +565,7 @@
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+    flex: 1;
   }
 
   .content-stem {
@@ -506,5 +598,37 @@
     text-align: center;
     font-size: 0.8125rem;
     opacity: 0.35;
+  }
+
+  .switcher-footer {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 12px;
+    border-top: 1px solid color-mix(in srgb, var(--editor-text) 8%, transparent);
+    font-size: 11px;
+    opacity: 0.3;
+  }
+
+  .footer-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .footer-key {
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 400;
+    padding: 1px 4px;
+    border: 1px solid color-mix(in srgb, var(--editor-text) 10%, transparent);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--editor-text);
+    line-height: 1.4;
+  }
+
+  .footer-label {
+    color: var(--editor-text);
   }
 </style>
