@@ -95,7 +95,7 @@ fn sanitize_filename_impl(name: &str) -> String {
             continue;
         }
 
-        if ch.is_ascii_alphanumeric() {
+        if ch.is_alphanumeric() {
             out.push(ch);
             prev_space = false;
             prev_dash = false;
@@ -126,6 +126,14 @@ fn normalize_for_match(s: &str) -> String {
         }
     }
     out.trim_end_matches('-').to_string()
+}
+
+/// Extract the link target from wikilink inner text, stripping any `|alias` suffix.
+fn wikilink_stem(inner: &str) -> &str {
+    match inner.find('|') {
+        Some(pos) => &inner[..pos],
+        None => inner,
+    }
 }
 
 /// Returns byte offset ranges `(start, end)` of the inner text of each `[[...]]` wikilink.
@@ -161,9 +169,9 @@ fn find_wikilinks(content: &str) -> Vec<(usize, usize)> {
     results
 }
 
-/// Convert a sanitized stem back to display form (dashes → spaces).
+/// Convert a stem to display form for wikilinks (underscores → spaces).
 fn stem_to_display(stem: &str) -> String {
-    stem.replace('-', " ")
+    stem.replace('_', " ")
 }
 
 const ALLOWED_IMAGE_EXTENSIONS: &[&str] = &[
@@ -400,7 +408,9 @@ pub fn find_wikilink_references(
         let links = find_wikilinks(&content);
         let count = links
             .iter()
-            .filter(|(start, end)| normalize_for_match(&content[*start..*end]) == target_norm)
+            .filter(|(start, end)| {
+                normalize_for_match(wikilink_stem(&content[*start..*end])) == target_norm
+            })
             .count();
         if count > 0 {
             if let Ok(rel) = entry.path().strip_prefix(vault) {
@@ -425,7 +435,9 @@ pub fn update_wikilink_references(
     let vault = &state.config.vault_dir;
     let target_norm = normalize_for_match(&old_stem);
     let replacement = stem_to_display(&new_stem);
-    let mut modified = Vec::new();
+
+    // Phase 1: compute all replacements in memory before writing anything
+    let mut writes: Vec<(PathBuf, String, String)> = Vec::new();
 
     for entry in WalkDir::new(vault)
         .into_iter()
@@ -440,26 +452,42 @@ pub fn update_wikilink_references(
         let links = find_wikilinks(&content);
         let matching: Vec<(usize, usize)> = links
             .into_iter()
-            .filter(|(start, end)| normalize_for_match(&content[*start..*end]) == target_norm)
+            .filter(|(start, end)| {
+                normalize_for_match(wikilink_stem(&content[*start..*end])) == target_norm
+            })
             .collect();
 
         if matching.is_empty() {
             continue;
         }
 
-        // Build new content by replacing matching wikilink inner text (reverse order to preserve offsets)
+        // Build new content by replacing only the stem portion of matching wikilinks,
+        // preserving any |alias suffix (reverse order to preserve offsets)
         let mut new_content = content.clone();
         for (start, end) in matching.into_iter().rev() {
-            new_content.replace_range(start..end, &replacement);
+            let inner = &content[start..end];
+            let stem_end = match inner.find('|') {
+                Some(pos) => start + pos,
+                None => end,
+            };
+            new_content.replace_range(start..stem_end, &replacement);
         }
-
-        atomic_write(entry.path(), new_content.as_bytes())?;
 
         if let Ok(rel) = entry.path().strip_prefix(vault) {
-            let rel_str = rel.to_string_lossy().into_owned();
-            let _ = search.op_sender.send(IndexOp::Upsert { rel_path: rel_str.clone() });
-            modified.push(rel_str);
+            writes.push((
+                entry.path().to_path_buf(),
+                new_content,
+                rel.to_string_lossy().into_owned(),
+            ));
         }
+    }
+
+    // Phase 2: write all files (all replacements computed, reduces partial-update window)
+    let mut modified = Vec::new();
+    for (path, content, rel_str) in &writes {
+        atomic_write(path, content.as_bytes())?;
+        let _ = search.op_sender.send(IndexOp::Upsert { rel_path: rel_str.clone() });
+        modified.push(rel_str.clone());
     }
 
     Ok(modified)
@@ -483,6 +511,14 @@ mod tests {
     fn sanitize_strips_trailing_dashes() {
         assert_eq!(sanitize_filename_impl("hello---"), "hello");
         assert_eq!(sanitize_filename_impl("---hello---"), "hello");
+    }
+
+    #[test]
+    fn sanitize_preserves_unicode() {
+        assert_eq!(sanitize_filename_impl("café notes"), "café notes");
+        assert_eq!(sanitize_filename_impl("日本語ノート"), "日本語ノート");
+        assert_eq!(sanitize_filename_impl("über cool"), "über cool");
+        assert_eq!(sanitize_filename_impl("résumé"), "résumé");
     }
 
     #[test]
@@ -581,6 +617,45 @@ mod tests {
     }
 
     #[test]
+    fn wikilink_stem_strips_alias() {
+        assert_eq!(wikilink_stem("my note"), "my note");
+        assert_eq!(wikilink_stem("my note|My Alias"), "my note");
+        assert_eq!(wikilink_stem("target|"), "target");
+    }
+
+    #[test]
+    fn find_wikilinks_alias_matching() {
+        let content = "See [[my note|Custom Name]] and [[my note]]";
+        let links = find_wikilinks(content);
+        let target_norm = normalize_for_match("my note");
+        let count = links
+            .iter()
+            .filter(|(s, e)| normalize_for_match(wikilink_stem(&content[*s..*e])) == target_norm)
+            .count();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn wikilink_replace_preserves_alias() {
+        let content = "See [[old name|My Alias]] done";
+        let links = find_wikilinks(content);
+        let target_norm = normalize_for_match("old name");
+        let replacement = "new name";
+        let mut new_content = content.to_string();
+        for (start, end) in links.into_iter().rev() {
+            if normalize_for_match(wikilink_stem(&content[start..end])) == target_norm {
+                let inner = &content[start..end];
+                let stem_end = match inner.find('|') {
+                    Some(pos) => start + pos,
+                    None => end,
+                };
+                new_content.replace_range(start..stem_end, replacement);
+            }
+        }
+        assert_eq!(new_content, "See [[new name|My Alias]] done");
+    }
+
+    #[test]
     fn find_wikilinks_empty_brackets() {
         let content = "[[]] not a link";
         let links = find_wikilinks(content);
@@ -598,7 +673,9 @@ mod tests {
 
     #[test]
     fn stem_to_display_basic() {
-        assert_eq!(stem_to_display("hello-world"), "hello world");
+        assert_eq!(stem_to_display("hello world"), "hello world");
+        assert_eq!(stem_to_display("hello-world"), "hello-world");
+        assert_eq!(stem_to_display("hello_world"), "hello world");
         assert_eq!(stem_to_display("simple"), "simple");
     }
 
