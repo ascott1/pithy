@@ -9,7 +9,7 @@
 		indentMore,
 		indentLess,
 	} from "@codemirror/commands";
-	import { markdown } from "@codemirror/lang-markdown";
+	import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 	import { languages } from "@codemirror/language-data";
 	import {
 		syntaxHighlighting,
@@ -211,7 +211,68 @@
 		return true;
 	}
 
+	function listContinuation(view: EditorView): boolean {
+		const { state } = view;
+		const sel = state.selection.main;
+		if (!sel.empty) return false;
+		const line = state.doc.lineAt(sel.head);
+		const text = line.text;
+
+		// Match bullet list: "  - [ ] content" or "  - content" or "  * content" or "  + content"
+		const bulletMatch = text.match(/^(\s*)([-*+]) (\[[ xX]\] )?(.*)$/);
+		if (bulletMatch) {
+			const [, indent, marker, task, content] = bulletMatch;
+			if (!content && !task) {
+				// Empty item — remove the marker line (exit list)
+				view.dispatch({
+					changes: { from: line.from, to: line.to, insert: "" },
+					selection: { anchor: line.from },
+				});
+				return true;
+			}
+			if (!content && task) {
+				// Empty task item — remove the marker line
+				view.dispatch({
+					changes: { from: line.from, to: line.to, insert: "" },
+					selection: { anchor: line.from },
+				});
+				return true;
+			}
+			// Continue the list
+			const continuation = task ? `${indent}${marker} [ ] ` : `${indent}${marker} `;
+			view.dispatch({
+				changes: { from: sel.head, insert: "\n" + continuation },
+				selection: { anchor: sel.head + 1 + continuation.length },
+			});
+			return true;
+		}
+
+		// Match ordered list: "  1. content" or "  1) content"
+		const orderedMatch = text.match(/^(\s*)(\d+)([.)]) (.*)$/);
+		if (orderedMatch) {
+			const [, indent, num, delim, content] = orderedMatch;
+			if (!content) {
+				// Empty item — remove the marker line
+				view.dispatch({
+					changes: { from: line.from, to: line.to, insert: "" },
+					selection: { anchor: line.from },
+				});
+				return true;
+			}
+			const nextNum = parseInt(num) + 1;
+			const continuation = `${indent}${nextNum}${delim} `;
+			view.dispatch({
+				changes: { from: sel.head, insert: "\n" + continuation },
+				selection: { anchor: sel.head + 1 + continuation.length },
+			});
+			return true;
+		}
+
+		return false;
+	}
+
 	const markdownKeymap: KeyBinding[] = [
+		{ key: "Enter", run: listContinuation },
 		{ key: "Mod-b", run: (v: EditorView) => toggleInlineDelimiter(v, "**") },
 		{ key: "Mod-i", run: (v: EditorView) => toggleInlineDelimiter(v, "*") },
 		{ key: "Mod-e", run: (v: EditorView) => toggleInlineDelimiter(v, "`") },
@@ -451,6 +512,7 @@
 				history(),
 				lang ??
 					markdown({
+						base: markdownLanguage,
 						codeLanguages: languages,
 						extensions: [wikilinkExtension],
 					}),

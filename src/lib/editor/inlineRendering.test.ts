@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { markdown } from "@codemirror/lang-markdown";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import {
 	syntaxHighlighting,
 	defaultHighlightStyle,
@@ -12,7 +12,7 @@ function createView(doc: string, cursor = 0): EditorView {
 	const state = EditorState.create({
 		doc,
 		extensions: [
-			markdown(),
+			markdown({ base: markdownLanguage }),
 			inlineRendering(),
 			syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 		],

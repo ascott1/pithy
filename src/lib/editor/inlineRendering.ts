@@ -56,6 +56,61 @@ class ImageWidget extends WidgetType {
 	}
 }
 
+class BulletWidget extends WidgetType {
+	eq() {
+		return true;
+	}
+	toDOM() {
+		const span = document.createElement("span");
+		span.className = "cm-md-bullet";
+		span.textContent = "\u2022 ";
+		return span;
+	}
+}
+const bulletWidget = new BulletWidget();
+
+class CheckboxWidget extends WidgetType {
+	constructor(
+		readonly checked: boolean,
+		readonly from: number,
+		readonly to: number,
+	) {
+		super();
+	}
+	eq(other: CheckboxWidget) {
+		return other.checked === this.checked && other.from === this.from && other.to === this.to;
+	}
+	toDOM(view: EditorView) {
+		const span = document.createElement("span");
+		span.className = "cm-md-checkbox" + (this.checked ? " cm-md-checkbox-checked" : "");
+		span.setAttribute("role", "checkbox");
+		span.setAttribute("aria-checked", this.checked ? "true" : "false");
+		if (this.checked) {
+			const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+			svg.setAttribute("viewBox", "0 0 12 12");
+			svg.setAttribute("fill", "none");
+			svg.classList.add("cm-md-checkbox-check");
+			const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+			path.setAttribute("d", "M2.5 6.5L5 9L9.5 3.5");
+			path.setAttribute("stroke", "currentColor");
+			path.setAttribute("stroke-width", "1.75");
+			path.setAttribute("stroke-linecap", "round");
+			path.setAttribute("stroke-linejoin", "round");
+			svg.appendChild(path);
+			span.appendChild(svg);
+		}
+		span.addEventListener("mousedown", (e) => {
+			e.preventDefault();
+			const replacement = this.checked ? "[ ]" : "[x]";
+			view.dispatch({ changes: { from: this.from, to: this.to, insert: replacement } });
+		});
+		return span;
+	}
+	ignoreEvent() {
+		return false;
+	}
+}
+
 // --- Hoisted decoration constants (immutable, shared across all builds) ---
 const REPLACE = Decoration.replace({});
 const MARK_STRONG = Decoration.mark({ class: "cm-md-strong" });
@@ -69,6 +124,9 @@ const LINE_CODE_FENCE = Decoration.line({
 	class: "cm-md-code-block cm-md-code-fence",
 });
 const LINE_HR = Decoration.line({ class: "cm-md-hr-line" });
+const MARK_STRIKETHROUGH = Decoration.mark({ class: "cm-md-strikethrough" });
+const LINE_LIST_ITEM = Decoration.line({ class: "cm-md-list-item" });
+const MARK_LIST_NUMBER = Decoration.mark({ class: "cm-md-list-number" });
 const MARK_TAG = Decoration.mark({ class: "cm-md-tag" });
 const HEADING_LINE_DECOS: Decoration[] = [
 	Decoration.line({ class: "cm-md-heading" }), // unused index 0
@@ -535,6 +593,119 @@ function buildDecorations(state: EditorState): DecorationSet {
 				return false;
 			}
 
+			// --- Strikethrough ---
+			if (name === "Strikethrough") {
+				if (active) return;
+				const cur = node.node.cursor();
+				const marks: { from: number; to: number }[] = [];
+				if (cur.firstChild()) {
+					do {
+						if (cur.name === "StrikethroughMark") {
+							marks.push({ from: cur.from, to: cur.to });
+						}
+					} while (cur.nextSibling());
+				}
+				if (marks.length >= 2) {
+					for (const m of marks) {
+						decorations.push(REPLACE.range(m.from, m.to));
+					}
+					decorations.push(
+						MARK_STRIKETHROUGH.range(
+							marks[0].to,
+							marks[marks.length - 1].from,
+						),
+					);
+				}
+				return;
+			}
+
+			// --- Lists (containers — descend into children) ---
+			if (name === "BulletList" || name === "OrderedList") {
+				return;
+			}
+
+			// --- List items ---
+			if (name === "ListItem") {
+				const cur = node.node.cursor();
+				let listMarkFrom = -1;
+				let listMarkTo = -1;
+				let hasTask = false;
+				let taskMarkerFrom = -1;
+				let taskMarkerTo = -1;
+				let taskChecked = false;
+
+				if (cur.firstChild()) {
+					do {
+						if (cur.name === "ListMark") {
+							listMarkFrom = cur.from;
+							listMarkTo = cur.to;
+						}
+						if (cur.name === "Task") {
+							hasTask = true;
+							// Find TaskMarker inside Task
+							const taskCur = cur.node.cursor();
+							if (taskCur.firstChild()) {
+								do {
+									if (taskCur.name === "TaskMarker") {
+										taskMarkerFrom = taskCur.from;
+										taskMarkerTo = taskCur.to;
+										const markerText = doc.sliceString(taskCur.from, taskCur.to);
+										taskChecked = markerText === "[x]" || markerText === "[X]";
+									}
+								} while (taskCur.nextSibling());
+							}
+						}
+					} while (cur.nextSibling());
+				}
+
+				if (listMarkFrom >= 0) {
+					const markLine = doc.lineAt(listMarkFrom);
+					const lineActive = selectionIntersects(markLine.from, markLine.to, selections);
+
+					if (!lineActive) {
+						decorations.push(LINE_LIST_ITEM.range(markLine.from));
+
+						if (hasTask && taskMarkerFrom >= 0) {
+							// Task item: hide list mark, replace task marker with checkbox
+							// Hide "- " (mark + trailing space)
+							let hideEnd = listMarkTo;
+							if (hideEnd < doc.length && doc.sliceString(hideEnd, hideEnd + 1) === " ") hideEnd++;
+							decorations.push(REPLACE.range(listMarkFrom, hideEnd));
+							// Replace task marker with checkbox widget
+							let cbEnd = taskMarkerTo;
+							if (cbEnd < doc.length && doc.sliceString(cbEnd, cbEnd + 1) === " ") cbEnd++;
+							decorations.push(
+								Decoration.replace({
+									widget: new CheckboxWidget(taskChecked, taskMarkerFrom, taskMarkerTo),
+								}).range(taskMarkerFrom, cbEnd),
+							);
+							if (taskChecked) {
+								decorations.push(
+									Decoration.line({ class: "cm-md-task-checked" }).range(markLine.from),
+								);
+							}
+						} else {
+							// Check if parent is BulletList or OrderedList
+							const parent = node.node.parent;
+							if (parent && parent.name === "BulletList") {
+								// Replace "- " with bullet widget
+								let hideEnd = listMarkTo;
+								if (hideEnd < doc.length && doc.sliceString(hideEnd, hideEnd + 1) === " ") hideEnd++;
+								decorations.push(
+									Decoration.replace({
+										widget: bulletWidget,
+									}).range(listMarkFrom, hideEnd),
+								);
+							} else if (parent && parent.name === "OrderedList") {
+								// Style the number marker
+								decorations.push(MARK_LIST_NUMBER.range(listMarkFrom, listMarkTo));
+							}
+						}
+					}
+				}
+				return;
+			}
+
 			// --- Blockquotes ---
 			if (name === "Blockquote") {
 				if (active) return;
@@ -778,6 +949,58 @@ const inlineRenderingTheme = EditorView.baseTheme({
 		padding: "0.75em 0 !important",
 	},
 
+	".cm-md-strikethrough": {
+		textDecoration: "line-through",
+		opacity: "0.5",
+	},
+
+	".cm-md-bullet": {
+		color: "inherit",
+	},
+
+	".cm-md-list-number": {
+		opacity: "0.5",
+	},
+
+	".cm-md-checkbox": {
+		display: "inline-flex",
+		alignItems: "center",
+		justifyContent: "center",
+		width: "18px",
+		height: "18px",
+		minWidth: "18px",
+		minHeight: "18px",
+		border: "1.5px solid var(--checkbox-color, color-mix(in srgb, currentColor 28%, transparent))",
+		borderRadius: "5px",
+		backgroundColor: "transparent",
+		verticalAlign: "-3px",
+		cursor: "pointer",
+		margin: "0 6px 0 0",
+		transition: "border-color 0.15s ease, background-color 0.15s ease",
+		boxSizing: "border-box",
+	},
+
+	".cm-md-checkbox:hover": {
+		borderColor: "var(--checkbox-color, color-mix(in srgb, currentColor 45%, transparent))",
+	},
+
+	".cm-md-checkbox-checked": {
+		backgroundColor: "var(--checkbox-checked-bg, var(--accent-color, #2383e2))",
+		borderColor: "var(--checkbox-checked-bg, var(--accent-color, #2383e2))",
+		color: "var(--checkbox-check-color, white)",
+	},
+
+	".cm-md-checkbox-check": {
+		width: "12px",
+		height: "12px",
+		display: "block",
+	},
+
+	".cm-md-task-checked": {
+		opacity: "0.45",
+		textDecoration: "line-through",
+	},
+
 	".cm-md-tag": {
 		color: "var(--tag-color, var(--accent-color, #2383e2))",
 		backgroundColor: "var(--tag-bg, color-mix(in srgb, var(--accent-color, #2383e2) 8%, transparent))",
@@ -811,13 +1034,13 @@ const highlightStyle = HighlightStyle.define([
 	{ tag: tags.keyword, color: "#708" },
 	{
 		tag: [
-			tags.atom,
 			tags.bool,
 			tags.contentSeparator,
 			tags.labelName,
 		],
 		color: "#219",
 	},
+	{ tag: tags.atom, color: "inherit" },
 	{ tag: tags.url, color: "var(--link-color, var(--accent-color, #4078f2))" },
 	{ tag: [tags.literal, tags.inserted], color: "#164" },
 	{ tag: [tags.string, tags.deleted], color: "#a11" },

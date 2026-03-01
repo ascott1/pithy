@@ -349,7 +349,7 @@ pub fn list_files(state: tauri::State<'_, AppState>) -> Result<Vec<String>, Stri
 
     if files.is_empty() {
         let welcome = vault.join("welcome.md");
-        atomic_write(&welcome, b"# Welcome to Pithy\n\nStart writing.\n")?;
+        atomic_write(&welcome, b"Pithy is a fast, focused markdown notes app. Just start typing.\n\n## Quick shortcuts\n\n- **Cmd+K** -- Navigate between notes or create a new one\n- **Cmd+D** -- Open today's daily note\n- **Cmd+,** -- Open settings (config.toml)\n- **Cmd+Shift+F** -- Full-text search across all notes\n\n## Linking notes\n\nType `[[` to link to another note. Following a link to a note that doesn't exist creates it.\n\n## Storage\n\nYour notes are plain `.md` files saved automatically as you type. Sync them however you like -- iCloud, Dropbox, Git.\n")?;
         files.push("welcome.md".into());
     }
 
