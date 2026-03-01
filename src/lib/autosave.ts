@@ -77,22 +77,25 @@ export class AutoSaveController {
 		for (const resolve of waiters) resolve();
 	}
 
-	flushNow() {
+	async flushNow() {
 		if (!this.path) return;
 		if (this.timer) clearTimeout(this.timer);
 		this.timer = null;
 
-		if (this.doc === this.lastSavedDoc) {
-			if (!this.saving) {
-				this.setState("idle", null);
-				this.resolveWaiters();
-			}
+		if (this.doc === this.lastSavedDoc && !this.saving) {
+			this.setState("idle", null);
+			this.resolveWaiters();
 			return;
 		}
 
-		if (!this.saving) {
-			void this.doSave();
-		}
+		return new Promise<void>((resolve) => {
+			this.flushWaiters.push(resolve);
+			if (!this.saving) {
+				void this.doSave();
+			}
+			// If saving is in progress, doSave's while loop will pick up
+			// the new doc and resolve waiters when the cycle drains.
+		});
 	}
 
 	async flushAndWait() {
