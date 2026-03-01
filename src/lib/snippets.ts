@@ -3,8 +3,9 @@
  * the <b> highlight tags that mark search matches.
  */
 export function cleanSnippet(html: string): string {
-  // Process text segments between <b>...</b> tags, leaving tags intact
-  const result = html.replace(
+  // Strip all HTML tags except <b> and </b>, then process text segments
+  const sanitized = html.replace(/<(?!\/?b>)[^>]*>/gi, "");
+  const result = sanitized.replace(
     /(<\/?b>)|([^<]+)/g,
     (_match, tag: string, text: string) => {
       if (tag) return tag;
