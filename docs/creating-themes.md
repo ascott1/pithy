@@ -78,6 +78,8 @@ No `@media` queries needed — the app handles light/dark selection.
 | `--border-color` | Blockquote borders, horizontal rules | `rgba(55,53,47,0.16)` | `rgba(200,195,185,0.18)` |
 | `--backdrop-color` | Modal overlay background | `rgba(15,15,15,0.6)` | `rgba(0,0,0,0.45)` |
 | `--shadow-color` | Box shadow color | `rgba(15,15,15,0.1)` | `rgba(0,0,0,0.35)` |
+| `--tag-color` | Hashtag text color | `#2383e2` | `#5a9cf5` |
+| `--tag-bg` | Hashtag background | `rgba(35,131,226,0.08)` | `rgba(90,156,245,0.10)` |
 
 Font settings (`--editor-font-size`, `--editor-font-family`, `--editor-line-height`) are controlled by the `[editor]` config section, not themes.
 

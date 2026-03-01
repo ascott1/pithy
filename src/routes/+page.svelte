@@ -643,6 +643,8 @@
 		--border-color: rgba(55, 53, 47, 0.16);
 		--backdrop-color: rgba(15, 15, 15, 0.6);
 		--shadow-color: rgba(15, 15, 15, 0.1);
+		--tag-color: #2383e2;
+		--tag-bg: rgba(35, 131, 226, 0.08);
 		--content-max-width: 680px;
 		--editor-font-size: 15px;
 		--editor-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;

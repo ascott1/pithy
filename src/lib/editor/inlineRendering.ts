@@ -69,6 +69,7 @@ const LINE_CODE_FENCE = Decoration.line({
 	class: "cm-md-code-block cm-md-code-fence",
 });
 const LINE_HR = Decoration.line({ class: "cm-md-hr-line" });
+const MARK_TAG = Decoration.mark({ class: "cm-md-tag" });
 const HEADING_LINE_DECOS: Decoration[] = [
 	Decoration.line({ class: "cm-md-heading" }), // unused index 0
 	Decoration.line({ class: "cm-md-heading cm-md-h1" }),
@@ -245,6 +246,28 @@ function resolveImageSrc(url: string, vaultRoot: string): string | null {
 	if (!vaultRoot || !isRelativePathSafe(url)) return null;
 	const absPath = vaultRoot + (vaultRoot.endsWith("/") ? "" : "/") + url;
 	return convertFileSrc(absPath);
+}
+
+// --- Tag detection (matches Rust extract_tags logic) ---
+const TAG_RE = /(?:^|(?<=[\s([{]))#([a-zA-Z0-9_][\w\-/]*[\w]|[a-zA-Z0-9_])/g;
+const TAG_EXCLUDE_PARENTS = new Set([
+	"FencedCode", "CodeBlock", "InlineCode", "CodeMark", "CodeText",
+	"URL", "LinkMark",
+	"ATXHeading1", "ATXHeading2", "ATXHeading3",
+	"ATXHeading4", "ATXHeading5", "ATXHeading6", "HeaderMark",
+]);
+
+function isInsideExcludedContext(
+	tree: ReturnType<typeof syntaxTree>,
+	pos: number,
+): boolean {
+	let node = tree.resolveInner(pos);
+	while (node) {
+		if (TAG_EXCLUDE_PARENTS.has(node.name)) return true;
+		if (!node.parent) break;
+		node = node.parent;
+	}
+	return false;
 }
 
 function buildDecorations(state: EditorState): DecorationSet {
@@ -544,6 +567,31 @@ function buildDecorations(state: EditorState): DecorationSet {
 		},
 	});
 
+	// --- Tag scanning (post-tree, regex-based) ---
+	for (let n = 1; n <= doc.lines; n++) {
+		const line = doc.line(n);
+		TAG_RE.lastIndex = 0;
+		let m: RegExpExecArray | null;
+		while ((m = TAG_RE.exec(line.text)) !== null) {
+			let from = line.from + m.index;
+			let to = from + m[0].length;
+			// Trim trailing `-` and `/`
+			while (to > from + 1) {
+				const ch = doc.sliceString(to - 1, to);
+				if (ch === "-" || ch === "/") {
+					to--;
+				} else {
+					break;
+				}
+			}
+			// Must have at least `#` + one char
+			if (to - from < 2) continue;
+			if (selectionIntersects(from, to, selections)) continue;
+			if (isInsideExcludedContext(tree, from)) continue;
+			decorations.push(MARK_TAG.range(from, to));
+		}
+	}
+
 	return Decoration.set(decorations, true);
 }
 
@@ -728,6 +776,14 @@ const inlineRenderingTheme = EditorView.baseTheme({
 		borderBottom: "1px solid var(--border-color, rgba(128, 128, 128, 0.25))",
 		lineHeight: "0 !important",
 		padding: "0.75em 0 !important",
+	},
+
+	".cm-md-tag": {
+		color: "var(--tag-color, var(--accent-color, #2383e2))",
+		backgroundColor: "var(--tag-bg, color-mix(in srgb, var(--accent-color, #2383e2) 8%, transparent))",
+		borderRadius: "3px",
+		padding: "1px 3px",
+		fontSize: "0.92em",
 	},
 
 	".cm-md-image-wrapper": {

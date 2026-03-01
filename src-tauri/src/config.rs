@@ -74,6 +74,8 @@ const DEFAULT_LIGHT_CSS: &str = r#":root {
   --border-color: rgba(55, 53, 47, 0.16);
   --backdrop-color: rgba(15, 15, 15, 0.6);
   --shadow-color: rgba(15, 15, 15, 0.1);
+  --tag-color: #2383e2;
+  --tag-bg: rgba(35, 131, 226, 0.08);
 }
 "#;
 
@@ -91,6 +93,8 @@ const DEFAULT_DARK_CSS: &str = r#":root {
   --border-color: rgba(180, 180, 195, 0.15);
   --backdrop-color: rgba(0, 0, 0, 0.50);
   --shadow-color: rgba(0, 0, 0, 0.40);
+  --tag-color: #5a9cf5;
+  --tag-bg: rgba(90, 156, 245, 0.10);
 }
 "#;
 
