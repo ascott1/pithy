@@ -25,6 +25,7 @@ These work in the editor in vault/markdown mode (not in config editing mode).
 | Cmd+E | Toggle inline code | Wraps/unwraps selection with `` ` ``. |
 | Cmd+Shift+X | Toggle strikethrough | Wraps/unwraps selection with `~~`. |
 | Cmd+Shift+C | Toggle code block | Wraps/unwraps selection with ``` fences. |
+| Enter | Continue list | Auto-inserts next list marker. On empty item, exits list. |
 | Tab | Indent | Indents the current line or list item. |
 | Shift+Tab | Outdent | Outdents the current line or list item. |
 

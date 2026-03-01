@@ -88,10 +88,138 @@ line-height = 1.7
 
 ---
 
+### `auto-update-links`
+
+Controls whether Pithy automatically updates `[[wikilinks]]` in other notes when you rename a file. When `false`, a confirmation dialog is shown before updating references.
+
+```toml
+auto-update-links = true
+```
+
+- **Type:** boolean
+- **Default:** `true`
+
+---
+
+### `[theme]`
+
+Controls the color theme. Pithy ships with `default-light` and `default-dark` built-in themes. Custom themes are `.css` files placed in `~/.config/pithy/themes/`.
+
+#### `mode`
+
+Theme mode. `"auto"` follows the OS light/dark setting, `"light"` or `"dark"` forces one.
+
+```toml
+[theme]
+mode = "auto"
+```
+
+- **Type:** `"auto"` | `"light"` | `"dark"`
+- **Default:** `"auto"`
+
+#### `light`
+
+Name of the theme to use in light mode. References a `.css` file in `~/.config/pithy/themes/` or a built-in theme.
+
+```toml
+[theme]
+light = "default-light"
+```
+
+- **Type:** string (theme name)
+- **Default:** `"default-light"`
+
+#### `dark`
+
+Name of the theme to use in dark mode.
+
+```toml
+[theme]
+dark = "default-dark"
+```
+
+- **Type:** string (theme name)
+- **Default:** `"default-dark"`
+
+---
+
+### `[daily]`
+
+Configures daily notes created with **Cmd+D**.
+
+#### `dir`
+
+Subdirectory for daily notes, relative to the vault root. Notes are created inside this folder.
+
+```toml
+[daily]
+dir = "daily"
+```
+
+- **Type:** string (relative path)
+- **Default:** `"daily"`
+
+#### `format`
+
+Filename format for daily notes. Supports `YYYY`, `MM`, `DD` tokens.
+
+```toml
+[daily]
+format = "YYYY-MM-DD"
+```
+
+- **Type:** string (date format)
+- **Default:** `"YYYY-MM-DD"`
+
+---
+
+### `[status-bar]`
+
+Controls the info bar displayed at the bottom of the editor.
+
+#### `show`
+
+Show or hide the entire status bar.
+
+```toml
+[status-bar]
+show = true
+```
+
+- **Type:** boolean
+- **Default:** `true`
+
+#### `show-backlinks`
+
+Show the backlinks count in the status bar.
+
+```toml
+[status-bar]
+show-backlinks = true
+```
+
+- **Type:** boolean
+- **Default:** `true`
+
+#### `show-word-count`
+
+Show the word count in the status bar.
+
+```toml
+[status-bar]
+show-word-count = true
+```
+
+- **Type:** boolean
+- **Default:** `true`
+
+---
+
 ## Full Example
 
 ```toml
 version = 1
+auto-update-links = true
 
 [vault]
 dir = "~/Notes"
@@ -100,6 +228,20 @@ dir = "~/Notes"
 font-size = 16
 font-family = 'Iosevka, ui-monospace, monospace'
 line-height = 1.8
+
+[theme]
+mode = "auto"
+light = "default-light"
+dark = "default-dark"
+
+[daily]
+dir = "daily"
+format = "YYYY-MM-DD"
+
+[status-bar]
+show = true
+show-backlinks = true
+show-word-count = true
 ```
 
 ## Troubleshooting
