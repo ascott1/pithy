@@ -30,13 +30,16 @@
 <style>
 	.info-bar {
 		position: fixed;
-		bottom: 8px;
+		bottom: 0;
 		right: 12px;
 		display: flex;
 		gap: 16px;
 		font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
 		font-size: 0.6875rem;
 		color: var(--editor-text);
+		background-color: var(--editor-bg);
+		padding: 4px 10px;
+		border-radius: 6px 6px 0 0;
 		pointer-events: none;
 	}
 
