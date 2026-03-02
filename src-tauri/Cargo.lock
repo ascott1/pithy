@@ -2885,6 +2885,7 @@ name = "pithy"
 version = "0.1.0"
 dependencies = [
  "notify",
+ "objc2-app-kit",
  "serde",
  "serde_json",
  "tantivy",

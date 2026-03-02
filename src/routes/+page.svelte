@@ -24,6 +24,7 @@
 		writeConfigFile,
 		getConfigInfo,
 	} from "$lib/tauri/config";
+	import { setTitlebarOpacity } from "$lib/tauri/window";
 	import { AutoSaveController, type SaveState } from "$lib/autosave";
 	import { resolveWikilink } from "$lib/editor/wikilink";
 	import { formatDailyName } from "$lib/daily";
@@ -84,6 +85,26 @@
 	let showBacklinksPopover = $state(false);
 	let wordCount = $state(0);
 	let wordCountTimer: ReturnType<typeof setTimeout> | null = null;
+
+	let titlebarVisible = $state(true);
+	let titlebarHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function showTitlebar() {
+		if (titlebarHideTimer) { clearTimeout(titlebarHideTimer); titlebarHideTimer = null; }
+		if (!titlebarVisible) {
+			titlebarVisible = true;
+			void setTitlebarOpacity(1);
+		}
+	}
+
+	function scheduleTitlebarHide(delay: number) {
+		if (titlebarHideTimer) clearTimeout(titlebarHideTimer);
+		titlebarHideTimer = setTimeout(() => {
+			titlebarHideTimer = null;
+			titlebarVisible = false;
+			void setTitlebarOpacity(0);
+		}, delay);
+	}
 
 	let titleDraft = $state("");
 	let isRenaming = $state(false);
@@ -189,6 +210,9 @@
 			await openFile(files[0]);
 			addRecent(files[0]);
 		}
+
+		// Auto-hide titlebar after initial delay
+		scheduleTitlebarHide(1500);
 	});
 
 	onDestroy(() => {
@@ -239,6 +263,38 @@
 		return () => {
 			if (wordCountTimer) clearTimeout(wordCountTimer);
 		};
+	});
+
+	// Auto-hide titlebar: mouse near top shows, moving away schedules hide
+	$effect(() => {
+		function onMouseMove(e: MouseEvent) {
+			if (e.clientY < 40) {
+				showTitlebar();
+			} else if (titlebarVisible && !titlebarHideTimer) {
+				scheduleTitlebarHide(400);
+			}
+		}
+		window.addEventListener("mousemove", onMouseMove);
+		return () => window.removeEventListener("mousemove", onMouseMove);
+	});
+
+	// Auto-hide titlebar: typing triggers hide after delay
+	$effect(() => {
+		// Track doc changes to trigger hide while typing
+		void doc;
+		if (mode === "vault" || mode === "config") {
+			scheduleTitlebarHide(800);
+		}
+	});
+
+	// Auto-hide titlebar: show when any modal is open
+	let anyModalOpen = $derived(showSwitcher || showSearch || !!wikilinkDialog || !!deleteDialog || showBacklinksPopover);
+	$effect(() => {
+		if (anyModalOpen) {
+			showTitlebar();
+		} else {
+			scheduleTitlebarHide(400);
+		}
 	});
 
 	function displayName(path: string): string {
@@ -523,7 +579,7 @@
 </script>
 
 <div class="app">
-	<div class="drag-region" data-tauri-drag-region></div>
+	<div class="drag-region" class:titlebar-hidden={!titlebarVisible} data-tauri-drag-region></div>
 	{#if configWarning}
 		<div class="warning-banner">
 			<span class="warning-text">{configWarning}</span>
@@ -674,6 +730,7 @@
 	}
 
 	.app {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		height: 100vh;
@@ -686,9 +743,19 @@
 	}
 
 	.drag-region {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
 		height: 28px;
-		flex-shrink: 0;
+		z-index: 10;
 		-webkit-app-region: drag;
+		background: var(--editor-bg);
+		transition: opacity 0.25s ease;
+	}
+
+	.drag-region.titlebar-hidden {
+		opacity: 0;
 	}
 
 	.editor-surface {

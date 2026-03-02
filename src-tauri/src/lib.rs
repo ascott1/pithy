@@ -1,6 +1,7 @@
 mod config;
 mod fs;
 mod search;
+mod titlebar;
 
 use config::AppState;
 use std::sync::Arc;
@@ -84,6 +85,7 @@ pub fn run() {
             search::search_status,
             search::search_rebuild,
             search::list_tags,
+            titlebar::set_titlebar_opacity,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
