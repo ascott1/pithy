@@ -26,18 +26,21 @@ pithy/
 │   │   ├── autosave.ts      # AutoSaveController — debounced single-writer autosave
 │   │   ├── daily.ts         # formatDailyName() — date-based note name formatting
 │   │   ├── fuzzy.ts         # fuzzyScore() — subsequence matching for filename stems
+│   │   ├── snippets.ts      # cleanSnippet(), stripMarkdown() — sanitize Tantivy search snippets
 │   │   ├── BacklinksPopover.svelte  # Backlinks popover — click info bar count to see linking notes
 │   │   ├── DeleteConfirmDialog.svelte  # Delete confirmation — shows broken backlink warnings
+│   │   ├── WikilinkUpdateDialog.svelte  # Rename confirmation — offers bulk rewrite of wikilink refs
 │   │   ├── QuickSwitcher.svelte  # Cmd+K modal — file nav, fuzzy search, create-on-enter, delete
 │   │   ├── SearchPanel.svelte    # Cmd+Shift+F modal — full-text search via Tantivy
 │   │   ├── InfoBar.svelte        # Status bar — word count + clickable backlinks count
 │   │   ├── editor/
-│   │   │   ├── MarkdownEditor.svelte  # CodeMirror 6 wrapper + inline title (injected into CM scroller)
+│   │   │   ├── MarkdownEditor.svelte  # CodeMirror 6 wrapper + inline title, formatting shortcuts, find/replace
 │   │   │   └── inlineRendering.ts     # Live preview — hides markdown syntax, renders styled output
 │   │   └── tauri/
 │   │       ├── config.ts    # Typed invoke wrappers for config commands
 │   │       ├── fs.ts        # Typed invoke wrappers for Rust commands
-│   │       └── search.ts   # Typed invoke wrappers for Tantivy search commands
+│   │       ├── search.ts   # Typed invoke wrappers for Tantivy search commands
+│   │       └── window.ts   # Typed invoke wrappers for window commands (titlebar)
 │   ├── routes/             # SvelteKit routes
 │   │   ├── +layout.ts      # SSR disabled (ssr = false, prerender = true)
 │   │   └── +page.svelte    # Main page — title + editor surface, CSS variable definitions
@@ -47,11 +50,13 @@ pithy/
 │   │   ├── main.rs         # Entry point — calls pithy_lib::run()
 │   │   ├── lib.rs          # Tauri builder, command registration
 │   │   ├── config.rs       # Config parsing, resolution, Tauri commands
-│   │   └── fs.rs           # Filesystem commands (list, read, save, rename, sanitize)
+│   │   ├── fs.rs           # Filesystem commands (list, read, save, rename, sanitize, images)
+│   │   └── titlebar.rs     # macOS titlebar opacity control (auto-hide via objc2_app_kit)
 │   ├── Cargo.toml          # Rust dependencies
 │   └── tauri.conf.json     # Tauri config (window size, app ID, build commands)
 ├── docs/                   # Developer documentation
 │   ├── adding-config-settings.md
+│   ├── configuration.md       # Full user-facing config reference
 │   ├── creating-themes.md
 │   └── shortcuts.md
 ├── static/                 # Static assets served at /
@@ -87,8 +92,20 @@ Keep the IPC surface small — well-defined Tauri commands.
 - `delete_file(rel_path)` — moves file to system Trash (via `trash` crate), removes from search index.
 - `rename_file(old_rel_path, new_rel_path)` — renames, fails if destination exists.
 - `sanitize_filename(name) -> String` — deterministic sanitization (strip illegal chars, collapse whitespace/dashes, preserve user input).
+- `find_wikilink_references(old_stem) -> Vec<WikilinkReference>` — scans vault for files containing `[[wikilinks]]` referencing the given stem. Returns `{relPath, count}` objects. Used for backlink counts and rename/delete dialogs.
+- `update_wikilink_references(old_stem, new_stem) -> Vec<String>` — bulk-rewrites all `[[wikilinks]]` targeting `old_stem` to `new_stem`. Computes all rewrites in memory first, then writes atomically. Preserves `|alias` syntax. Returns modified file paths.
+- `copy_image_to_assets(source_path, filename) -> String` — copies an image into `_assets/` inside the vault. Validates extension against allowlist, enforces 200 MB size limit, sanitizes filename (lowercase stem, dash-separated), deduplicates with counter suffix. Returns vault-relative path like `_assets/my-screenshot.png`.
 
 All paths are relative to vault root. `resolve_path()` rejects `..`, absolute paths, and other traversal via `Path::components()` checking. Tauri 2 auto-converts camelCase JS args to snake_case Rust params.
+
+### Current Tauri Commands (titlebar.rs)
+- `set_titlebar_opacity(opacity: f64)` — sets macOS title bar container alpha via `objc2_app_kit`. No-op on non-macOS. Used by the auto-hide titlebar feature.
+
+### Current Tauri Commands (search.rs)
+- `search_query(query) -> Vec<SearchResult>` — full-text search via Tantivy index.
+- `search_status() -> SearchStatus` — returns index health/readiness.
+- `search_rebuild()` — rebuilds the entire Tantivy index from scratch.
+- `list_tags() -> Vec<String>` — returns all indexed `#tag` values.
 
 ### Current Tauri Commands (config.rs)
 - `get_config_info() -> ConfigInfo` — returns resolved config snapshot (paths, editor settings, warnings). Called once on startup.
@@ -110,18 +127,42 @@ A single deterministic function (defined in Rust, exposed via Tauri command) use
 ### Inline Rendering (Not WYSIWYG)
 The editor uses CodeMirror decorations to render markdown inline (bold appears bold, headers resize, links styled) while raw markdown is revealed when the cursor enters an element. Implemented in `src/lib/editor/inlineRendering.ts`.
 
-**Architecture:** A CM6 `ViewPlugin` that recomputes `Decoration`s over `view.visibleRanges` whenever `docChanged`, `selectionSet`, or `viewportChanged` fires. It walks the Lezer markdown syntax tree via `syntaxTree(state).iterate()`. For each node: if the cursor intersects its range → skip decorations (show raw markdown); otherwise → hide delimiters with `Decoration.replace({})` and style content with `Decoration.mark`/`Decoration.line`.
+**Architecture:** Two-layer system — a `StateField` (`inlineDecoField`) for the main decorations and a `ViewPlugin` (`inlineRenderingPlugin`) for tag styling and DOM events.
+
+- **`inlineDecoField` (StateField)** — owns the main body of decorations (headings, bold, italic, links, images, wikilinks, blockquotes, lists, task lists, strikethrough, code, horizontal rules). Operates over the **full document** (not just visible ranges) to prevent invisible-text bugs during height estimation with non-standard font sizes.
+- **`inlineRenderingPlugin` (ViewPlugin)** — handles `#hashtag` decorations (visible-range scan via `buildTagDecorations()`) and DOM event handlers (Cmd+click for links/wikilinks, `Meta` key CSS class toggling).
+- **`vaultRootFacet`** — a `Facet` that carries the vault root path into editor state. Used by `resolveImageSrc()` to convert relative image paths to loadable `asset://` URLs. `MarkdownEditor` accepts a `vaultRoot` prop and injects it via this facet.
+
+Both layers walk the Lezer markdown syntax tree via `syntaxTree(state).iterate()`. For each node: if the cursor intersects its range → skip decorations (show raw markdown); otherwise → hide delimiters with `Decoration.replace({})` and style content with `Decoration.mark`/`Decoration.line`.
 
 **Key implementation details:**
 - **Container/composable nodes** (headings, bold, italic, links, blockquotes) must `return` (not `return false`) from the tree iterator so nested formatting renders correctly (e.g., bold inside headings, italic inside blockquotes).
 - **Leaf nodes** (inline code, fenced code, horizontal rules) use `return false` to prevent descending into children.
-- **Block widget decorations** (`Decoration.replace({block: true})`) cannot be provided by `ViewPlugin`s — they require a `StateField`. Horizontal rules use `Decoration.line()` + `Decoration.replace({})` instead.
 - **Custom highlight style:** The extension bundles its own `HighlightStyle` (a copy of `defaultHighlightStyle` with `textDecoration: underline` removed from `heading` and `link` tags). In markdown mode this replaces `defaultHighlightStyle`; TOML config mode still uses the original.
 - **IME composition:** Decoration building is skipped entirely when `view.composing` is true.
 - **Cursor boundary:** `selectionIntersects()` uses inclusive checks for empty selections so cursor at a delimiter edge counts as "inside".
 
-**Implemented elements:** ATX headings (H1–H6), bold, italic, links (hides `[]()` and URL), inline code, fenced code blocks (styled lines, dimmed fences), blockquotes (hides `>`, left border), horizontal rules (replaced with styled line).
-**Deferred:** tables, footnotes, math blocks, embedded images, setext headings, link click-to-open.
+**Implemented elements:** ATX headings (H1–H6), bold, italic, strikethrough, links (hides `[]()` and URL, Cmd+click to open), wikilinks (hides `[[]]`, Cmd+click to navigate), inline code, fenced code blocks (styled lines, dimmed fences), blockquotes (hides `>`, left border), horizontal rules (replaced with styled line), unordered lists (bullet widget replaces `- `), ordered lists (styled number marker), task lists (interactive checkbox widget, clickable to toggle), inline images (hides syntax, renders `ImageWidget`; supports URLs and vault-relative paths), `#hashtag` tags (accent-colored pill styling).
+**Deferred:** tables, footnotes, math blocks, setext headings.
+
+### Auto-hiding Titlebar
+- macOS traffic-light buttons auto-hide after 1500ms of inactivity.
+- Mouse within 40px of window top reveals the titlebar; moving below schedules a 400ms hide.
+- Any typing schedules an 800ms hide. Modal open (QuickSwitcher, SearchPanel, etc.) shows titlebar; modal close schedules hide.
+- Implementation: `setTitlebarOpacity()` IPC in `+page.svelte`, delegating to `titlebar.rs` which manipulates `NSTitlebarContainerView` alpha via `objc2_app_kit`.
+
+### Image Support
+- **Drag-and-drop:** listens for Tauri `dragdrop` window events. Drops image files into `_assets/` via `copyImageToAssets()`, inserts `![alt](_assets/filename.ext)` at drop coordinates (falls back to cursor). Non-image files ignored.
+- **Inline rendering:** images render as `ImageWidget` when cursor is away; raw markdown + image preview shown when cursor is on the node. Supports http/https URLs and vault-relative paths (resolved via `convertFileSrc`).
+- **Supported formats:** png, jpg, jpeg, gif, webp, svg, bmp, ico.
+- **Storage convention:** images live in `_assets/` subdirectory inside the vault root.
+
+### In-editor Find/Replace
+- Custom CodeMirror search panel (Cmd+F) for within-document find/replace. Separate from Cmd+Shift+F full-text Tantivy search.
+- Find with case-sensitive, whole-word, and regex toggle buttons.
+- Match counter (`current/total`), previous/next navigation (Enter/Shift+Enter).
+- Expandable replace row with Replace and Replace All buttons.
+- Escape closes panel and returns focus to editor.
 
 ### Navigation: Cmd+K Is Everything
 - Cmd+K is the **unified** quick switcher for navigation AND creation.
@@ -176,7 +217,7 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 - **Custom themes:** `.css` files in `~/.config/pithy/themes/`. Referenced by name (with or without `.css` extension). Missing themes fall back to built-in defaults with a warning.
 - **Resolution pipeline:** `ThemeConfig` (TOML) → `resolve_theme_css()` loads CSS content → `ResolvedConfig` holds CSS strings → `ThemeConfigInfo` (JSON to frontend with `mode`, `lightCss`, `darkCss`).
 - **Frontend injection:** `+page.svelte` creates a `<style id="pithy-theme">` element in `<head>` on mount. For `mode: "auto"`, wraps each theme's CSS in `@media (prefers-color-scheme: light/dark)`. For forced mode, injects the chosen CSS directly.
-- **Theme CSS variables:** `--editor-bg`, `--editor-text`, `--editor-cursor`, `--editor-selection`, `--accent-color`, `--link-color`, `--dirty-color`, `--error-color`, `--code-bg`, `--code-block-bg`, `--border-color`, `--backdrop-color`, `--shadow-color`. Font settings (`--editor-font-size`, `--editor-font-family`, `--editor-line-height`) are controlled by `[editor]` config, not themes.
+- **Theme CSS variables:** `--editor-bg`, `--editor-text`, `--editor-cursor`, `--editor-selection`, `--accent-color`, `--link-color`, `--dirty-color`, `--error-color`, `--code-bg`, `--code-block-bg`, `--border-color`, `--backdrop-color`, `--shadow-color`, `--checkbox-color`, `--checkbox-checked-bg` (falls back to `--accent-color`), `--checkbox-check-color` (falls back to `white`), `--tag-color` (falls back to `--accent-color`), `--tag-bg`. Font settings (`--editor-font-size`, `--editor-font-family`, `--editor-line-height`) are controlled by `[editor]` config, not themes.
 - **Hardcoded CSS fallback:** `+page.svelte` still defines light defaults in `:global(:root)` as a baseline before theme CSS loads.
 - See `docs/creating-themes.md` for the full user-facing guide.
 
@@ -219,10 +260,17 @@ The editor uses CodeMirror decorations to render markdown inline (bold appears b
 |---|---|
 | Quick switcher (nav + create) | Cmd+K |
 | Full-text search | Cmd+Shift+F |
+| Find/replace (in document) | Cmd+F |
 | Daily note | Cmd+D |
 | Open config | Cmd+, |
 | Delete current note | Cmd+Backspace |
 | Immediate save (flush) | Cmd+S |
+| Bold | Cmd+B |
+| Italic | Cmd+I |
+| Inline code | Cmd+E |
+| Strikethrough | Cmd+Shift+X |
+| Code block | Cmd+Shift+C |
+| Indent/unindent | Tab / Shift+Tab |
 | Quick capture (global) | Configurable |
 
 See `docs/shortcuts.md` for the full shortcuts reference.
@@ -295,5 +343,5 @@ Graph view, block references/transclusion, frontmatter parsing, PDF/media, expor
 - **Editor remounting** — wrap `MarkdownEditor` in `{#key currentPath}` so each file gets a fresh CodeMirror instance with clean undo history.
 - **Config identifier:** `com.writepithy.app`
 - **Autosave flush-before-switch** — always `await autosave.flushAndWait()` before opening a different file or renaming. After rename, call `autosave.setOpenedFile(newPath, doc)` to reset the baseline.
-- **CSS variables** — define on `:global(:root)` (not scoped `:root`) so they reach CodeMirror's shadow styles. Theme-controlled color vars: `--editor-bg`, `--editor-text`, `--editor-cursor`, `--editor-selection`, `--accent-color`, `--link-color`, `--dirty-color`, `--error-color`, `--code-bg`, `--code-block-bg`, `--border-color`, `--backdrop-color`, `--shadow-color`. Layout/font vars (set from `[editor]` config): `--content-max-width`, `--editor-font-size`, `--editor-font-family`, `--editor-line-height`. Dark mode is handled by the theme system, not inline `@media` queries in component styles.
+- **CSS variables** — define on `:global(:root)` (not scoped `:root`) so they reach CodeMirror's shadow styles. Theme-controlled color vars: `--editor-bg`, `--editor-text`, `--editor-cursor`, `--editor-selection`, `--accent-color`, `--link-color`, `--dirty-color`, `--error-color`, `--code-bg`, `--code-block-bg`, `--border-color`, `--backdrop-color`, `--shadow-color`, `--checkbox-color`, `--checkbox-checked-bg`, `--checkbox-check-color`, `--tag-color`, `--tag-bg`. Layout/font vars (set from `[editor]` config): `--content-max-width`, `--editor-font-size`, `--editor-font-family`, `--editor-line-height`. Dark mode is handled by the theme system, not inline `@media` queries in component styles.
 - **Keyboard shortcuts** — when adding or changing a keyboard shortcut, always update `docs/shortcuts.md` to keep the shortcuts reference in sync.
