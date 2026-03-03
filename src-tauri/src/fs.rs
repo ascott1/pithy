@@ -27,7 +27,7 @@ fn resolve_path(vault_dir: &Path, rel_path: &str) -> Result<PathBuf, String> {
     Ok(vault_dir.join(rel))
 }
 
-fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
+pub fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("Invalid path")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
 
@@ -110,7 +110,7 @@ fn sanitize_filename_impl(name: &str) -> String {
     }
 }
 
-fn normalize_for_match(s: &str) -> String {
+pub fn normalize_for_match(s: &str) -> String {
     let lower = s.to_lowercase();
     let mut out = String::with_capacity(lower.len());
     let mut prev_dash = false;
@@ -129,7 +129,7 @@ fn normalize_for_match(s: &str) -> String {
 }
 
 /// Extract the link target from wikilink inner text, stripping any `|alias` suffix.
-fn wikilink_stem(inner: &str) -> &str {
+pub fn wikilink_stem(inner: &str) -> &str {
     match inner.find('|') {
         Some(pos) => &inner[..pos],
         None => inner,
@@ -137,7 +137,7 @@ fn wikilink_stem(inner: &str) -> &str {
 }
 
 /// Returns byte offset ranges `(start, end)` of the inner text of each `[[...]]` wikilink.
-fn find_wikilinks(content: &str) -> Vec<(usize, usize)> {
+pub fn find_wikilinks(content: &str) -> Vec<(usize, usize)> {
     let bytes = content.as_bytes();
     let len = bytes.len();
     let mut results = Vec::new();
@@ -170,7 +170,7 @@ fn find_wikilinks(content: &str) -> Vec<(usize, usize)> {
 }
 
 /// Convert a stem to display form for wikilinks (underscores → spaces).
-fn stem_to_display(stem: &str) -> String {
+pub fn stem_to_display(stem: &str) -> String {
     stem.replace('_', " ")
 }
 

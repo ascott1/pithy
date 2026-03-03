@@ -127,6 +127,7 @@
 
 	let openSeq = 0;
 	let renameSeq = 0;
+	let __perfStart = 0;
 	let unlistenConfig: UnlistenFn | null = null;
 	let unlistenDragDrop: UnlistenFn | null = null;
 
@@ -167,6 +168,7 @@
 	}
 
 	onMount(async () => {
+		__perfStart = performance.now();
 		const [info, files] = await Promise.all([getConfigInfo(), listFiles()]);
 
 		if (info.warning) configWarning = info.warning;
@@ -631,6 +633,9 @@
 					onready={(api) => {
 						editorApi = api;
 						api.focus();
+						if (import.meta.env.DEV && __perfStart) {
+							console.log(`[pithy:perf] cold start to editor focus: ${(performance.now() - __perfStart).toFixed(1)}ms`);
+						}
 					}}
 					fileStems={fileEntries}
 					onnavigate={(t) => void handleWikilinkNavigate(t)}

@@ -1,6 +1,6 @@
 mod config;
-mod fs;
-mod search;
+pub mod fs;
+pub mod search;
 mod titlebar;
 
 use config::AppState;
@@ -13,8 +13,14 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            #[cfg(debug_assertions)]
+            let setup_start = std::time::Instant::now();
+
             let (cfg, warning) =
                 config::load_or_create().map_err(|e| e.to_string())?;
+            #[cfg(debug_assertions)]
+            eprintln!("[pithy:perf] config load: {:?}", setup_start.elapsed());
+
             let vault_dir = cfg.vault_dir.clone();
             app.manage(AppState {
                 config: Arc::new(cfg),
@@ -24,6 +30,9 @@ pub fn run() {
             let search_state = search::init_search(vault_dir)
                 .map_err(|e| e.to_string())?;
             app.manage(search_state);
+
+            #[cfg(debug_assertions)]
+            eprintln!("[pithy:perf] setup total: {:?}", setup_start.elapsed());
 
             let settings = MenuItemBuilder::new("Settings...")
                 .id("settings")

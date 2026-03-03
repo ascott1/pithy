@@ -29,6 +29,8 @@
 
   let { files, recents, currentPath, dailyDir, onselect, oncreate, ondelete, onsearch, onclose }: Props = $props();
 
+  const __switcherOpenTime = import.meta.env.DEV ? performance.now() : 0;
+
   let query = $state("");
   let selectedIndex = $state(0);
   let inputEl: HTMLInputElement | undefined = $state();
@@ -167,6 +169,9 @@
 
   $effect(() => {
     inputEl?.focus();
+    if (import.meta.env.DEV && __switcherOpenTime) {
+      console.log(`[pithy:perf] cmd+k open to interactive: ${(performance.now() - __switcherOpenTime).toFixed(1)}ms`);
+    }
   });
 
   function stemDisplay(stem: string): string {

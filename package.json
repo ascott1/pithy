@@ -13,7 +13,10 @@
     "test": "vitest run && cargo test --manifest-path src-tauri/Cargo.toml",
     "test:ts": "vitest run",
     "test:watch": "vitest",
-    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml"
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "bench": "vitest bench",
+    "bench:rust": "cargo bench --manifest-path src-tauri/Cargo.toml",
+    "bench:all": "vitest bench && cargo bench --manifest-path src-tauri/Cargo.toml"
   },
   "license": "MIT",
   "dependencies": {
