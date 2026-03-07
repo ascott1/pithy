@@ -249,7 +249,8 @@ pub fn copy_image_to_assets(
 
     let (stem, ext) = sanitize_image_filename(&filename)?;
 
-    let assets_dir = state.config.vault_dir.join("_assets");
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    let assets_dir = cfg.vault_dir.join("_assets");
     fs::create_dir_all(&assets_dir).map_err(|e| e.to_string())?;
 
     // Atomic conflict resolution: create_new fails if file already exists (no TOCTOU race)
@@ -295,7 +296,8 @@ pub fn delete_file(
     state: tauri::State<'_, AppState>,
     search: tauri::State<'_, SearchState>,
 ) -> Result<(), String> {
-    let path = resolve_path(&state.config.vault_dir, &rel_path)?;
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    let path = resolve_path(&cfg.vault_dir, &rel_path)?;
     if !path.exists() {
         return Err("File does not exist".into());
     }
@@ -311,7 +313,8 @@ pub fn rename_file(
     state: tauri::State<'_, AppState>,
     search: tauri::State<'_, SearchState>,
 ) -> Result<(), String> {
-    let vault = &state.config.vault_dir;
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    let vault = &cfg.vault_dir;
     let old_path = resolve_path(vault, &old_rel_path)?;
     let new_path = resolve_path(vault, &new_rel_path)?;
 
@@ -334,7 +337,8 @@ pub fn rename_file(
 
 #[tauri::command]
 pub fn list_files(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
-    let vault = &state.config.vault_dir;
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    let vault = &cfg.vault_dir;
     fs::create_dir_all(&vault).map_err(|e| e.to_string())?;
 
     let mut files: Vec<String> = WalkDir::new(&vault)
@@ -367,13 +371,15 @@ pub fn list_files(state: tauri::State<'_, AppState>) -> Result<Vec<String>, Stri
 
 #[tauri::command]
 pub fn read_file(rel_path: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let path = resolve_path(&state.config.vault_dir, &rel_path)?;
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    let path = resolve_path(&cfg.vault_dir, &rel_path)?;
     fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn save_file(rel_path: String, contents: String, state: tauri::State<'_, AppState>, search: tauri::State<'_, SearchState>) -> Result<(), String> {
-    let path = resolve_path(&state.config.vault_dir, &rel_path)?;
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    let path = resolve_path(&cfg.vault_dir, &rel_path)?;
     atomic_write(&path, contents.as_bytes())?;
     let _ = search.op_sender.send(IndexOp::Upsert { rel_path });
     Ok(())
@@ -391,7 +397,8 @@ pub fn find_wikilink_references(
     old_stem: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<WikilinkReference>, String> {
-    let vault = &state.config.vault_dir;
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    let vault = &cfg.vault_dir;
     let target_norm = normalize_for_match(&old_stem);
     let mut refs = Vec::new();
 
@@ -432,7 +439,8 @@ pub fn update_wikilink_references(
     state: tauri::State<'_, AppState>,
     search: tauri::State<'_, SearchState>,
 ) -> Result<Vec<String>, String> {
-    let vault = &state.config.vault_dir;
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    let vault = &cfg.vault_dir;
     let target_norm = normalize_for_match(&old_stem);
     let replacement = stem_to_display(&new_stem);
 

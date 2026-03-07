@@ -4,7 +4,7 @@ pub mod search;
 mod titlebar;
 
 use config::AppState;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tauri::menu::{AboutMetadata, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 
@@ -23,8 +23,8 @@ pub fn run() {
 
             let vault_dir = cfg.vault_dir.clone();
             app.manage(AppState {
-                config: Arc::new(cfg),
-                config_warning: warning,
+                config: Arc::new(RwLock::new(cfg)),
+                config_warning: RwLock::new(warning),
             });
 
             let search_state = search::init_search(vault_dir)
@@ -90,6 +90,8 @@ pub fn run() {
             config::get_config_info,
             config::read_config_file,
             config::write_config_file,
+            config::update_config,
+            config::list_themes,
             search::search_query,
             search::search_status,
             search::search_rebuild,

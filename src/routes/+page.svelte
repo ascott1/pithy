@@ -20,9 +20,8 @@
 		type WikilinkReference,
 	} from "$lib/tauri/fs";
 	import {
-		readConfigFile,
-		writeConfigFile,
 		getConfigInfo,
+		type ConfigInfo,
 	} from "$lib/tauri/config";
 	import { setTitlebarOpacity } from "$lib/tauri/window";
 	import { AutoSaveController, type SaveState } from "$lib/autosave";
@@ -30,13 +29,11 @@
 	import { formatDailyName } from "$lib/daily";
 	import WikilinkUpdateDialog from "$lib/WikilinkUpdateDialog.svelte";
 	import DeleteConfirmDialog from "$lib/DeleteConfirmDialog.svelte";
+	import SettingsView from "$lib/SettingsView.svelte";
 	import type { DailyConfigInfo, StatusBarConfigInfo } from "$lib/tauri/config";
-	import { StreamLanguage } from "@codemirror/language";
-	import { toml } from "@codemirror/legacy-modes/mode/toml";
 
-	const tomlLang = StreamLanguage.define(toml);
-
-	let mode = $state<"vault" | "config">("vault");
+	let mode = $state<"vault" | "settings">("vault");
+	let configInfo = $state<ConfigInfo | null>(null);
 	let currentPath = $state<string | null>(null);
 	let doc = $state("");
 	let configWarning = $state<string | null>(null);
@@ -52,17 +49,6 @@
 		saveState = s;
 		saveDirty = dirty;
 		saveError = err;
-	};
-
-	const configAutosave = new AutoSaveController(350, (_path, contents) =>
-		writeConfigFile(contents),
-	);
-	configAutosave.onState = (s, dirty, err) => {
-		if (mode === "config") {
-			saveState = s;
-			saveDirty = dirty;
-			saveError = err;
-		}
 	};
 
 	let showSwitcher = $state(false);
@@ -167,38 +153,44 @@
 		}
 	}
 
+	function applyConfig(config: ConfigInfo) {
+		configInfo = config;
+		configWarning = config.warning;
+		vaultDir = config.vaultDir;
+		autoUpdateLinks = config.autoUpdateLinks;
+		dailyConfig = config.daily;
+		statusBarConfig = config.statusBar;
+
+		document.documentElement.style.setProperty("--editor-font-size", `${config.editor.fontSize}px`);
+		document.documentElement.style.setProperty("--editor-font-family", config.editor.fontFamily);
+		document.documentElement.style.setProperty("--editor-line-height", `${config.editor.lineHeight}`);
+
+		const themeStyle = document.getElementById("pithy-theme") ?? (() => {
+			const el = document.createElement("style");
+			el.id = "pithy-theme";
+			document.head.appendChild(el);
+			return el;
+		})();
+		if (config.theme.mode === "light") {
+			themeStyle.textContent = config.theme.lightCss;
+		} else if (config.theme.mode === "dark") {
+			themeStyle.textContent = config.theme.darkCss;
+		} else {
+			themeStyle.textContent =
+				`@media (prefers-color-scheme: light) { ${config.theme.lightCss} }\n` +
+				`@media (prefers-color-scheme: dark) { ${config.theme.darkCss} }`;
+		}
+	}
+
 	onMount(async () => {
 		__perfStart = performance.now();
 		const [info, files] = await Promise.all([getConfigInfo(), listFiles()]);
-
-		if (info.warning) configWarning = info.warning;
-		vaultDir = info.vaultDir;
-
-		autoUpdateLinks = info.autoUpdateLinks;
-		dailyConfig = info.daily;
-		statusBarConfig = info.statusBar;
-		document.documentElement.style.setProperty("--editor-font-size", `${info.editor.fontSize}px`);
-		document.documentElement.style.setProperty("--editor-font-family", info.editor.fontFamily);
-		document.documentElement.style.setProperty("--editor-line-height", `${info.editor.lineHeight}`);
-
-		// Inject theme CSS
-		const themeStyle = document.createElement("style");
-		themeStyle.id = "pithy-theme";
-		if (info.theme.mode === "light") {
-			themeStyle.textContent = info.theme.lightCss;
-		} else if (info.theme.mode === "dark") {
-			themeStyle.textContent = info.theme.darkCss;
-		} else {
-			themeStyle.textContent =
-				`@media (prefers-color-scheme: light) { ${info.theme.lightCss} }\n` +
-				`@media (prefers-color-scheme: dark) { ${info.theme.darkCss} }`;
-		}
-		document.head.appendChild(themeStyle);
+		applyConfig(info);
 
 		const appWindow = getCurrentWebviewWindow();
 		[unlistenConfig, unlistenDragDrop] = await Promise.all([
 			listen("open-config", () => {
-				void openConfig();
+				openSettings();
 			}),
 			appWindow.onDragDropEvent((event) => {
 				if (event.payload.type === "drop") {
@@ -284,7 +276,7 @@
 	$effect(() => {
 		// Track doc changes to trigger hide while typing
 		void doc;
-		if (mode === "vault" || mode === "config") {
+		if (mode === "vault" || mode === "settings") {
 			scheduleTitlebarHide(800);
 		}
 	});
@@ -327,8 +319,7 @@
 	async function openNote(path: string) {
 		showSwitcher = false;
 		showSearch = false;
-		if (mode === "config") {
-			await configAutosave.flushAndWait();
+		if (mode === "settings") {
 			mode = "vault";
 		}
 		await openFile(path);
@@ -416,30 +407,11 @@
 		}
 	}
 
-	async function openConfig() {
-		if (mode === "config") return;
-		await autosave.flushAndWait();
-
-		const contents = await readConfigFile();
-		mode = "config";
-		currentPath = "config.toml";
-		titleDraft = "config";
-		renameError = null;
-		doc = contents;
-		configAutosave.setOpenedFile("config.toml", contents);
-	}
-
-	async function closeConfig() {
-		await configAutosave.flushAndWait();
-		mode = "vault";
-
-		const files = await listFiles();
-		if (files.length > 0) {
-			await openFile(files[0]);
-		} else {
-			currentPath = null;
-			doc = "";
-		}
+	function openSettings() {
+		if (mode === "settings") return;
+		void autosave.flushAndWait();
+		mode = "settings";
+		showTitlebar();
 	}
 
 	async function openFile(path: string) {
@@ -468,19 +440,11 @@
 
 	function onDocChange(d: string) {
 		doc = d;
-		if (mode === "config") {
-			configAutosave.setDoc(d);
-		} else {
-			autosave.setDoc(d);
-		}
+		autosave.setDoc(d);
 	}
 
 	async function save() {
-		if (mode === "config") {
-			await configAutosave.flushNow();
-		} else {
-			await autosave.flushNow();
-		}
+		await autosave.flushNow();
 	}
 
 	async function commitTitleRename() {
@@ -589,31 +553,12 @@
 		</div>
 	{/if}
 
-	{#if mode === "config"}
-		<div class="editor-surface">
-			<div class="config-bar">
-				<button class="config-back" onclick={() => void closeConfig()}>← Back</button>
-				<span class="config-notice">Restart Pithy to apply changes</span>
-			</div>
-			{#key "config"}
-				<MarkdownEditor
-					{doc}
-					lang={tomlLang}
-					title="config"
-					titleDisabled={true}
-					dirty={saveDirty}
-					{saving}
-					{saveError}
-					renameError={null}
-					onchange={onDocChange}
-					onsave={save}
-					ontitlechange={() => {}}
-					ontitleblur={() => {}}
-					ontitlekeydown={() => {}}
-					onready={(api) => (editorApi = api)}
-				/>
-			{/key}
-		</div>
+	{#if mode === "settings" && configInfo}
+		<SettingsView
+			{configInfo}
+			onclose={() => { mode = "vault"; }}
+			onchange={(newConfig) => applyConfig(newConfig)}
+		/>
 	{:else if currentPath}
 		<div class="editor-surface">
 			{#key currentPath}
@@ -814,31 +759,4 @@
 		opacity: 0.8;
 	}
 
-	.config-bar {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		padding: 6px 16px;
-	}
-
-	.config-back {
-		background: none;
-		border: none;
-		color: var(--editor-text);
-		cursor: pointer;
-		font-size: 0.8125rem;
-		padding: 2px 6px;
-		border-radius: 4px;
-		opacity: 0.7;
-	}
-
-	.config-back:hover {
-		opacity: 1;
-		background: color-mix(in srgb, var(--editor-text) 8%, transparent);
-	}
-
-	.config-notice {
-		font-size: 0.75rem;
-		opacity: 0.5;
-	}
 </style>

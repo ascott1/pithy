@@ -11,12 +11,12 @@ These work anywhere in the app regardless of focus.
 | Cmd+K | Quick switcher | Toggle open/close. Navigate files, create new notes, delete current note. |
 | Cmd+Shift+F | Full-text search | Toggle Tantivy-powered search panel. |
 | Cmd+D | Daily note | Open or create today's daily note. Format configured via `[daily]` config. |
-| Cmd+, | Open config | Opens `config.toml` in the editor (via native menu). |
+| Cmd+, | Open Settings | Opens the Settings screen (via native menu). |
 | Cmd+Backspace | Delete current note | Moves current note to Trash. Shows confirmation dialog with backlink warnings. Only active in vault mode. |
 
 ## Markdown Formatting
 
-These work in the editor in vault/markdown mode (not in config editing mode).
+These work in the editor in vault/markdown mode.
 
 | Shortcut | Action | Notes |
 |---|---|---|

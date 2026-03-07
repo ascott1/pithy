@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 const DEFAULT_TEMPLATE: &str = r#"# Pithy configuration
-# This file is read on startup.
-# After editing, restart Pithy to apply changes.
+# Edit via Settings (Cmd+,) or directly in this file.
+# Changes apply live when using the Settings screen.
 #
 # Location: ~/.config/pithy/config.toml
 
@@ -288,8 +288,8 @@ pub struct ResolvedConfig {
 }
 
 pub struct AppState {
-    pub config: Arc<ResolvedConfig>,
-    pub config_warning: Option<String>,
+    pub config: Arc<RwLock<ResolvedConfig>>,
+    pub config_warning: RwLock<Option<String>>,
 }
 
 #[derive(Serialize)]
@@ -514,43 +514,50 @@ pub fn load_or_create() -> Result<(ResolvedConfig, Option<String>), String> {
     load_or_create_at(&path, &home)
 }
 
+fn build_config_info(cfg: &ResolvedConfig, warning: &Option<String>) -> ConfigInfo {
+    ConfigInfo {
+        config_path: cfg.config_path.to_string_lossy().into_owned(),
+        vault_dir: cfg.vault_dir.to_string_lossy().into_owned(),
+        vault_dir_display: cfg.vault_dir_raw.clone(),
+        warning: warning.clone(),
+        editor: EditorConfigInfo {
+            font_size: cfg.editor.font_size,
+            font_family: cfg.editor.font_family.clone(),
+            line_height: cfg.editor.line_height,
+        },
+        theme: ThemeConfigInfo {
+            mode: cfg.theme_mode.clone(),
+            light_css: cfg.theme_light_css.clone(),
+            dark_css: cfg.theme_dark_css.clone(),
+        },
+        daily: DailyConfigInfo {
+            dir: cfg.daily.dir.clone(),
+            format: cfg.daily.format.clone(),
+        },
+        auto_update_links: cfg.auto_update_links,
+        status_bar: StatusBarConfigInfo {
+            show: cfg.status_bar.show,
+            show_backlinks: cfg.status_bar.show_backlinks,
+            show_word_count: cfg.status_bar.show_word_count,
+        },
+    }
+}
+
 #[tauri::command]
 pub fn get_config_info(
     state: tauri::State<'_, AppState>,
 ) -> Result<ConfigInfo, String> {
-    Ok(ConfigInfo {
-        config_path: state.config.config_path.to_string_lossy().into_owned(),
-        vault_dir: state.config.vault_dir.to_string_lossy().into_owned(),
-        vault_dir_display: state.config.vault_dir_raw.clone(),
-        warning: state.config_warning.clone(),
-        editor: EditorConfigInfo {
-            font_size: state.config.editor.font_size,
-            font_family: state.config.editor.font_family.clone(),
-            line_height: state.config.editor.line_height,
-        },
-        theme: ThemeConfigInfo {
-            mode: state.config.theme_mode.clone(),
-            light_css: state.config.theme_light_css.clone(),
-            dark_css: state.config.theme_dark_css.clone(),
-        },
-        daily: DailyConfigInfo {
-            dir: state.config.daily.dir.clone(),
-            format: state.config.daily.format.clone(),
-        },
-        auto_update_links: state.config.auto_update_links,
-        status_bar: StatusBarConfigInfo {
-            show: state.config.status_bar.show,
-            show_backlinks: state.config.status_bar.show_backlinks,
-            show_word_count: state.config.status_bar.show_word_count,
-        },
-    })
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    let warning = state.config_warning.read().map_err(|e| e.to_string())?;
+    Ok(build_config_info(&cfg, &warning))
 }
 
 #[tauri::command]
 pub fn read_config_file(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    fs::read_to_string(&state.config.config_path).map_err(|e| e.to_string())
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    fs::read_to_string(&cfg.config_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -558,7 +565,151 @@ pub fn write_config_file(
     contents: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    atomic_write(&state.config.config_path, contents.as_bytes())
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    atomic_write(&cfg.config_path, contents.as_bytes())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigUpdates {
+    pub vault_dir: Option<String>,
+    pub auto_update_links: Option<bool>,
+    pub editor_font_size: Option<u32>,
+    pub editor_font_family: Option<String>,
+    pub editor_line_height: Option<f64>,
+    pub theme_mode: Option<String>,
+    pub theme_light: Option<String>,
+    pub theme_dark: Option<String>,
+    pub daily_dir: Option<String>,
+    pub daily_format: Option<String>,
+    pub status_bar_show: Option<bool>,
+    pub status_bar_show_backlinks: Option<bool>,
+    pub status_bar_show_word_count: Option<bool>,
+}
+
+fn ensure_table<'a>(doc: &'a mut toml_edit::DocumentMut, key: &str) -> &'a mut toml_edit::Item {
+    if !doc.contains_key(key) {
+        doc[key] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    &mut doc[key]
+}
+
+#[tauri::command]
+pub fn update_config(
+    updates: ConfigUpdates,
+    state: tauri::State<'_, AppState>,
+) -> Result<ConfigInfo, String> {
+    let config_path = {
+        let cfg = state.config.read().map_err(|e| e.to_string())?;
+        cfg.config_path.clone()
+    };
+
+    let raw = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+    let mut doc: toml_edit::DocumentMut = raw.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
+
+    // Apply updates to the TOML document
+    if let Some(v) = &updates.vault_dir {
+        ensure_table(&mut doc, "vault");
+        doc["vault"]["dir"] = toml_edit::value(v.as_str());
+    }
+    if let Some(v) = updates.auto_update_links {
+        doc["auto-update-links"] = toml_edit::value(v);
+    }
+    if let Some(v) = updates.editor_font_size {
+        ensure_table(&mut doc, "editor");
+        doc["editor"]["font-size"] = toml_edit::value(v as i64);
+    }
+    if let Some(v) = &updates.editor_font_family {
+        ensure_table(&mut doc, "editor");
+        doc["editor"]["font-family"] = toml_edit::value(v.as_str());
+    }
+    if let Some(v) = updates.editor_line_height {
+        ensure_table(&mut doc, "editor");
+        doc["editor"]["line-height"] = toml_edit::value(v);
+    }
+    if let Some(v) = &updates.theme_mode {
+        ensure_table(&mut doc, "theme");
+        doc["theme"]["mode"] = toml_edit::value(v.as_str());
+    }
+    if let Some(v) = &updates.theme_light {
+        ensure_table(&mut doc, "theme");
+        doc["theme"]["light"] = toml_edit::value(v.as_str());
+    }
+    if let Some(v) = &updates.theme_dark {
+        ensure_table(&mut doc, "theme");
+        doc["theme"]["dark"] = toml_edit::value(v.as_str());
+    }
+    if let Some(v) = &updates.daily_dir {
+        ensure_table(&mut doc, "daily");
+        doc["daily"]["dir"] = toml_edit::value(v.as_str());
+    }
+    if let Some(v) = &updates.daily_format {
+        ensure_table(&mut doc, "daily");
+        doc["daily"]["format"] = toml_edit::value(v.as_str());
+    }
+    if let Some(v) = updates.status_bar_show {
+        ensure_table(&mut doc, "status-bar");
+        doc["status-bar"]["show"] = toml_edit::value(v);
+    }
+    if let Some(v) = updates.status_bar_show_backlinks {
+        ensure_table(&mut doc, "status-bar");
+        doc["status-bar"]["show-backlinks"] = toml_edit::value(v);
+    }
+    if let Some(v) = updates.status_bar_show_word_count {
+        ensure_table(&mut doc, "status-bar");
+        doc["status-bar"]["show-word-count"] = toml_edit::value(v);
+    }
+
+    // Atomic write the updated TOML
+    let new_toml = doc.to_string();
+    atomic_write(&config_path, new_toml.as_bytes())?;
+
+    // Re-resolve config from disk
+    let home = std::env::var("HOME").map_err(|_| "HOME environment variable not set".to_string())?;
+    let (new_cfg, new_warning) = load_or_create_at(&config_path, &home)?;
+
+    // Swap in the new config
+    let info = build_config_info(&new_cfg, &new_warning);
+    {
+        let mut cfg = state.config.write().map_err(|e| e.to_string())?;
+        *cfg = new_cfg;
+    }
+    {
+        let mut w = state.config_warning.write().map_err(|e| e.to_string())?;
+        *w = new_warning;
+    }
+
+    Ok(info)
+}
+
+#[tauri::command]
+pub fn list_themes(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let cfg = state.config.read().map_err(|e| e.to_string())?;
+    let themes_dir = cfg.config_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("themes");
+
+    let mut names = vec!["default-dark".to_string(), "default-light".to_string()];
+
+    if let Ok(entries) = fs::read_dir(&themes_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("css") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    let name = stem.to_string();
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
+            }
+        }
+    }
+
+    names.sort();
+    Ok(names)
 }
 
 #[cfg(test)]
@@ -956,5 +1107,173 @@ show-backlinks = false
     fn default_template_contains_status_bar_section() {
         assert!(DEFAULT_TEMPLATE.contains("[status-bar]"));
         assert!(DEFAULT_TEMPLATE.contains("show = true"));
+    }
+
+    // --- update_config tests ---
+
+    fn apply_updates(initial_toml: &str, updates: ConfigUpdates, home: &str) -> (String, ResolvedConfig, Option<String>) {
+        let dir = tempdir().unwrap();
+        let cfg_path = dir.path().join("config.toml");
+        fs::write(&cfg_path, initial_toml).unwrap();
+
+        let raw = fs::read_to_string(&cfg_path).unwrap();
+        let mut doc: toml_edit::DocumentMut = raw.parse().unwrap();
+
+        if let Some(v) = &updates.vault_dir {
+            ensure_table(&mut doc, "vault");
+            doc["vault"]["dir"] = toml_edit::value(v.as_str());
+        }
+        if let Some(v) = updates.auto_update_links {
+            doc["auto-update-links"] = toml_edit::value(v);
+        }
+        if let Some(v) = updates.editor_font_size {
+            ensure_table(&mut doc, "editor");
+            doc["editor"]["font-size"] = toml_edit::value(v as i64);
+        }
+        if let Some(v) = &updates.editor_font_family {
+            ensure_table(&mut doc, "editor");
+            doc["editor"]["font-family"] = toml_edit::value(v.as_str());
+        }
+        if let Some(v) = updates.editor_line_height {
+            ensure_table(&mut doc, "editor");
+            doc["editor"]["line-height"] = toml_edit::value(v);
+        }
+        if let Some(v) = &updates.theme_mode {
+            ensure_table(&mut doc, "theme");
+            doc["theme"]["mode"] = toml_edit::value(v.as_str());
+        }
+        if let Some(v) = &updates.theme_light {
+            ensure_table(&mut doc, "theme");
+            doc["theme"]["light"] = toml_edit::value(v.as_str());
+        }
+        if let Some(v) = &updates.theme_dark {
+            ensure_table(&mut doc, "theme");
+            doc["theme"]["dark"] = toml_edit::value(v.as_str());
+        }
+        if let Some(v) = &updates.daily_dir {
+            ensure_table(&mut doc, "daily");
+            doc["daily"]["dir"] = toml_edit::value(v.as_str());
+        }
+        if let Some(v) = &updates.daily_format {
+            ensure_table(&mut doc, "daily");
+            doc["daily"]["format"] = toml_edit::value(v.as_str());
+        }
+        if let Some(v) = updates.status_bar_show {
+            ensure_table(&mut doc, "status-bar");
+            doc["status-bar"]["show"] = toml_edit::value(v);
+        }
+        if let Some(v) = updates.status_bar_show_backlinks {
+            ensure_table(&mut doc, "status-bar");
+            doc["status-bar"]["show-backlinks"] = toml_edit::value(v);
+        }
+        if let Some(v) = updates.status_bar_show_word_count {
+            ensure_table(&mut doc, "status-bar");
+            doc["status-bar"]["show-word-count"] = toml_edit::value(v);
+        }
+
+        let new_toml = doc.to_string();
+        fs::write(&cfg_path, &new_toml).unwrap();
+
+        let (resolved, warning) = load_or_create_at(&cfg_path, home).unwrap();
+        (new_toml, resolved, warning)
+    }
+
+    fn empty_updates() -> ConfigUpdates {
+        ConfigUpdates {
+            vault_dir: None,
+            auto_update_links: None,
+            editor_font_size: None,
+            editor_font_family: None,
+            editor_line_height: None,
+            theme_mode: None,
+            theme_light: None,
+            theme_dark: None,
+            daily_dir: None,
+            daily_format: None,
+            status_bar_show: None,
+            status_bar_show_backlinks: None,
+            status_bar_show_word_count: None,
+        }
+    }
+
+    #[test]
+    fn update_config_preserves_comments() {
+        let initial = "# My config comment\nversion = 1\n\n[vault]\n# vault comment\ndir = \"~/Notes\"\n\n[editor]\n# font comment\nfont-size = 15\n";
+        let updates = ConfigUpdates {
+            editor_font_size: Some(18),
+            ..empty_updates()
+        };
+        let (new_toml, resolved, _) = apply_updates(initial, updates, "/Users/test");
+        assert!(new_toml.contains("# My config comment"));
+        assert!(new_toml.contains("# vault comment"));
+        assert!(new_toml.contains("# font comment"));
+        assert_eq!(resolved.editor.font_size, 18);
+    }
+
+    #[test]
+    fn update_config_partial_leaves_others_unchanged() {
+        let initial = "version = 1\n\n[vault]\ndir = \"~/Notes\"\n\n[editor]\nfont-size = 20\nline-height = 1.5\n";
+        let updates = ConfigUpdates {
+            editor_font_size: Some(16),
+            ..empty_updates()
+        };
+        let (_, resolved, _) = apply_updates(initial, updates, "/Users/test");
+        assert_eq!(resolved.editor.font_size, 16);
+        assert!((resolved.editor.line_height - 1.5).abs() < f64::EPSILON);
+        assert_eq!(resolved.vault_dir, PathBuf::from("/Users/test/Notes"));
+    }
+
+    #[test]
+    fn update_config_creates_missing_sections() {
+        let initial = "version = 1\n\n[vault]\ndir = \"~/Notes\"\n";
+        let updates = ConfigUpdates {
+            theme_mode: Some("dark".into()),
+            status_bar_show_backlinks: Some(false),
+            ..empty_updates()
+        };
+        let (new_toml, resolved, _) = apply_updates(initial, updates, "/Users/test");
+        assert!(new_toml.contains("[theme]"));
+        assert!(new_toml.contains("[status-bar]"));
+        assert_eq!(resolved.theme_mode, "dark");
+        assert!(!resolved.status_bar.show_backlinks);
+    }
+
+    #[test]
+    fn list_themes_returns_builtins_and_custom() {
+        let dir = tempdir().unwrap();
+        let themes_dir = dir.path().join("themes");
+        fs::create_dir_all(&themes_dir).unwrap();
+        fs::write(themes_dir.join("solarized.css"), ":root {}").unwrap();
+        fs::write(themes_dir.join("dracula.css"), ":root {}").unwrap();
+        fs::write(themes_dir.join("not-a-theme.txt"), "").unwrap();
+
+        let cfg_path = dir.path().join("config.toml");
+        fs::write(&cfg_path, "version = 1\n\n[vault]\ndir = \"~/Notes\"\n").unwrap();
+
+        let (resolved, _) = load_or_create_at(&cfg_path, "/Users/test").unwrap();
+
+        // Simulate list_themes logic
+        let td = resolved.config_path.parent().unwrap().join("themes");
+        let mut names = vec!["default-dark".to_string(), "default-light".to_string()];
+        if let Ok(entries) = fs::read_dir(&td) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("css") {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        let name = stem.to_string();
+                        if !names.contains(&name) {
+                            names.push(name);
+                        }
+                    }
+                }
+            }
+        }
+        names.sort();
+
+        assert!(names.contains(&"default-light".to_string()));
+        assert!(names.contains(&"default-dark".to_string()));
+        assert!(names.contains(&"solarized".to_string()));
+        assert!(names.contains(&"dracula".to_string()));
+        assert!(!names.contains(&"not-a-theme".to_string()));
     }
 }

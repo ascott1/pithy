@@ -46,3 +46,27 @@ export function readConfigFile(): Promise<string> {
 export function writeConfigFile(contents: string): Promise<void> {
 	return invoke<void>("write_config_file", { contents });
 }
+
+export interface ConfigUpdates {
+	vaultDir?: string;
+	autoUpdateLinks?: boolean;
+	editorFontSize?: number;
+	editorFontFamily?: string;
+	editorLineHeight?: number;
+	themeMode?: string;
+	themeLight?: string;
+	themeDark?: string;
+	dailyDir?: string;
+	dailyFormat?: string;
+	statusBarShow?: boolean;
+	statusBarShowBacklinks?: boolean;
+	statusBarShowWordCount?: boolean;
+}
+
+export function updateConfig(updates: ConfigUpdates): Promise<ConfigInfo> {
+	return invoke<ConfigInfo>("update_config", { updates });
+}
+
+export function listThemes(): Promise<string[]> {
+	return invoke<string[]>("list_themes");
+}

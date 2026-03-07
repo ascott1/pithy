@@ -1,8 +1,6 @@
 # Configuration
 
-Pithy is configured entirely through a single TOML file. There is no settings UI — open the config file with **Cmd+,** (or Pithy → Settings…) to edit it directly in the app.
-
-**All changes require restarting Pithy to take effect.**
+Pithy is configured via the Settings screen (**Cmd+,** or Pithy → Settings…). Changes apply live — no restart needed. Power users can also edit the TOML config file directly at the path shown below; the Settings UI reads and writes the same file.
 
 ## Location
 
