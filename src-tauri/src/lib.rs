@@ -41,7 +41,7 @@ pub fn run() {
 
             let new_note = MenuItemBuilder::new("New Note")
                 .id("new-note")
-                .accelerator("CmdOrCtrl+K")
+                .accelerator("CmdOrCtrl+N")
                 .build(app)?;
 
             let delete_note = MenuItemBuilder::new("Delete Note")
@@ -113,7 +113,7 @@ pub fn run() {
                 if event.id() == settings.id() {
                     let _ = app_handle.emit("open-config", ());
                 } else if event.id() == new_note.id() {
-                    let _ = app_handle.emit("open-quick-switcher", ());
+                    let _ = app_handle.emit("create-new-note", ());
                 } else if event.id() == delete_note.id() {
                     let _ = app_handle.emit("delete-note", ());
                 } else if event.id() == fullscreen.id() {

@@ -151,7 +151,7 @@ Both layers walk the Lezer markdown syntax tree via `syntaxTree(state).iterate()
 ### Native Menus
 - Standard macOS menu bar: **Pithy | File | Edit | View | Window | Help**.
 - **Pithy** submenu: About, Settings (Cmd+,), Services, Hide/Show, Quit.
-- **File** submenu: New Note (Cmd+K, emits `open-quick-switcher`), Delete Note (Cmd+Backspace, emits `delete-note`), Close Window (Cmd+W).
+- **File** submenu: New Note (Cmd+N, emits `create-new-note`), Delete Note (Cmd+Backspace, emits `delete-note`), Close Window (Cmd+W).
 - **View** submenu: Enter Full Screen (Ctrl+Cmd+F, toggles fullscreen on main window).
 - **Window** submenu: Minimize (Cmd+M).
 - **Help** submenu: empty (macOS auto-adds searchable help entry).
@@ -269,6 +269,7 @@ Both layers walk the Lezer markdown syntax tree via `syntaxTree(state).iterate()
 
 | Action | Shortcut |
 |---|---|
+| New note (untitled) | Cmd+N |
 | Quick switcher (nav + create) | Cmd+K |
 | Full-text search | Cmd+Shift+F |
 | Find/replace (in document) | Cmd+F |

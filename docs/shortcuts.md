@@ -8,6 +8,7 @@ These work anywhere in the app regardless of focus.
 
 | Shortcut | Action | Notes |
 |---|---|---|
+| Cmd+N | New note | Creates a new untitled note directly (via File menu). Title is selected for immediate rename. |
 | Cmd+K | Quick switcher | Toggle open/close. Navigate files, create new notes, delete current note. |
 | Cmd+Shift+F | Full-text search | Toggle Tantivy-powered search panel. |
 | Cmd+D | Daily note | Open or create today's daily note. Format configured via `[daily]` config. |

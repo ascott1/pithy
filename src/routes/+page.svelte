@@ -109,7 +109,8 @@
 		path: string;
 		references: WikilinkReference[];
 	} | null>(null);
-	let editorApi: { focus: () => void; focusTitle: () => void; insertAtCoords: (text: string, coords: { x: number; y: number }) => boolean; insertAtCursor: (text: string) => void } | null = null;
+	let editorApi: { focus: () => void; focusTitle: (selectAll?: boolean) => void; insertAtCoords: (text: string, coords: { x: number; y: number }) => boolean; insertAtCursor: (text: string) => void } | null = null;
+	let focusTitleOnReady = $state(false);
 
 	let openSeq = 0;
 	let renameSeq = 0;
@@ -118,6 +119,7 @@
 	let unlistenDragDrop: UnlistenFn | null = null;
 	let unlistenQuickSwitcher: UnlistenFn | null = null;
 	let unlistenDeleteNote: UnlistenFn | null = null;
+	let unlistenCreateNewNote: UnlistenFn | null = null;
 
 	const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
 
@@ -190,7 +192,7 @@
 		applyConfig(info);
 
 		const appWindow = getCurrentWebviewWindow();
-		[unlistenConfig, unlistenDragDrop, unlistenQuickSwitcher, unlistenDeleteNote] = await Promise.all([
+		[unlistenConfig, unlistenDragDrop, unlistenQuickSwitcher, unlistenDeleteNote, unlistenCreateNewNote] = await Promise.all([
 			listen("open-config", () => {
 				openSettings();
 			}),
@@ -212,6 +214,9 @@
 			listen("delete-note", () => {
 				void deleteCurrentNote();
 			}),
+			listen("create-new-note", () => {
+				void createUntitledNote();
+			}),
 		]);
 
 		fileEntries = buildFileEntries(files);
@@ -229,6 +234,7 @@
 		unlistenDragDrop?.();
 		unlistenQuickSwitcher?.();
 		unlistenDeleteNote?.();
+		unlistenCreateNewNote?.();
 	});
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
@@ -341,6 +347,18 @@
 		}
 		await openFile(path);
 		addRecent(path);
+	}
+
+	async function createUntitledNote() {
+		const existing = new Set(fileEntries.map((f) => f.stem.toLowerCase()));
+		let name = "Untitled";
+		if (existing.has("untitled")) {
+			let n = 2;
+			while (existing.has(`untitled-${n}`)) n++;
+			name = `Untitled-${n}`;
+		}
+		focusTitleOnReady = true;
+		await createNote(name);
 	}
 
 	async function createNote(name: string) {
@@ -594,7 +612,12 @@
 					ontitlekeydown={onTitleKeydown}
 					onready={(api) => {
 						editorApi = api;
-						api.focus();
+						if (focusTitleOnReady) {
+							focusTitleOnReady = false;
+							api.focusTitle(true);
+						} else {
+							api.focus();
+						}
 						if (import.meta.env.DEV && __perfStart) {
 							console.log(`[pithy:perf] cold start to editor focus: ${(performance.now() - __perfStart).toFixed(1)}ms`);
 						}

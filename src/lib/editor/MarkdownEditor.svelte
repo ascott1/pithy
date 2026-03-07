@@ -46,7 +46,7 @@
 		renameError?: string | null;
 		onchange?: (doc: string) => void;
 		onsave?: () => void;
-		onready?: (api: { focus: () => void; focusTitle: () => void; insertAtCoords: (text: string, coords: { x: number; y: number }) => boolean; insertAtCursor: (text: string) => void }) => void;
+		onready?: (api: { focus: () => void; focusTitle: (selectAll?: boolean) => void; insertAtCoords: (text: string, coords: { x: number; y: number }) => boolean; insertAtCursor: (text: string) => void }) => void;
 		ontitlechange?: (value: string) => void;
 		ontitleblur?: () => void;
 		ontitlekeydown?: (e: KeyboardEvent) => void;
@@ -133,13 +133,17 @@
 		},
 	});
 
-	function focusTitleInput() {
+	function focusTitleInput(selectAll = false) {
 		if (titleInputEl) {
 			titleInputEl.focus();
-			titleInputEl.setSelectionRange(
-				titleInputEl.value.length,
-				titleInputEl.value.length,
-			);
+			if (selectAll) {
+				titleInputEl.select();
+			} else {
+				titleInputEl.setSelectionRange(
+					titleInputEl.value.length,
+					titleInputEl.value.length,
+				);
+			}
 		}
 	}
 
@@ -641,7 +645,7 @@
 				view?.focus();
 				view?.dispatch({ selection: { anchor: 0 } });
 			},
-			focusTitle: () => focusTitleInput(),
+			focusTitle: (selectAll?: boolean) => focusTitleInput(selectAll),
 			insertAtCoords: (text: string, coords: { x: number; y: number }) => {
 				if (!view) return false;
 				const pos = view.posAtCoords(coords);
