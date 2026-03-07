@@ -13,6 +13,7 @@ These work anywhere in the app regardless of focus.
 | Cmd+D | Daily note | Open or create today's daily note. Format configured via `[daily]` config. |
 | Cmd+, | Open Settings | Opens the Settings screen (via native menu). |
 | Cmd+Backspace | Delete current note | Moves current note to Trash. Shows confirmation dialog with backlink warnings. Only active in vault mode. |
+| Ctrl+Cmd+F | Enter Full Screen | Toggles macOS native fullscreen. Available via View menu. |
 
 ## Markdown Formatting
 

@@ -148,6 +148,15 @@ Both layers walk the Lezer markdown syntax tree via `syntaxTree(state).iterate()
 **Implemented elements:** ATX headings (H1–H6), bold, italic, strikethrough, links (hides `[]()` and URL, Cmd+click to open), wikilinks (hides `[[]]`, Cmd+click to navigate), inline code, fenced code blocks (styled lines, dimmed fences), blockquotes (hides `>`, left border), horizontal rules (replaced with styled line), unordered lists (bullet widget replaces `- `), ordered lists (styled number marker), task lists (interactive checkbox widget, clickable to toggle), inline images (hides syntax, renders `ImageWidget`; supports URLs and vault-relative paths), `#hashtag` tags (accent-colored pill styling).
 **Deferred:** tables, footnotes, math blocks, setext headings.
 
+### Native Menus
+- Standard macOS menu bar: **Pithy | File | Edit | View | Window | Help**.
+- **Pithy** submenu: About, Settings (Cmd+,), Services, Hide/Show, Quit.
+- **File** submenu: New Note (Cmd+K, emits `open-quick-switcher`), Delete Note (Cmd+Backspace, emits `delete-note`), Close Window (Cmd+W).
+- **View** submenu: Enter Full Screen (Ctrl+Cmd+F, toggles fullscreen on main window).
+- **Window** submenu: Minimize (Cmd+M).
+- **Help** submenu: empty (macOS auto-adds searchable help entry).
+- Menu events are handled in `lib.rs` `on_menu_event`. New Note and Delete Note emit Tauri events that the frontend listens for in `+page.svelte`.
+
 ### Auto-hiding Titlebar
 - macOS traffic-light buttons auto-hide after 1500ms of inactivity.
 - Mouse within 40px of window top reveals the titlebar; moving below schedules a 400ms hide.
@@ -266,6 +275,7 @@ Both layers walk the Lezer markdown syntax tree via `syntaxTree(state).iterate()
 | Daily note | Cmd+D |
 | Open Settings | Cmd+, |
 | Delete current note | Cmd+Backspace |
+| Enter Full Screen | Ctrl+Cmd+F |
 | Immediate save (flush) | Cmd+S |
 | Bold | Cmd+B |
 | Italic | Cmd+I |
