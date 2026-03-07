@@ -116,6 +116,8 @@
 	let __perfStart = 0;
 	let unlistenConfig: UnlistenFn | null = null;
 	let unlistenDragDrop: UnlistenFn | null = null;
+	let unlistenQuickSwitcher: UnlistenFn | null = null;
+	let unlistenDeleteNote: UnlistenFn | null = null;
 
 	const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
 
@@ -188,7 +190,7 @@
 		applyConfig(info);
 
 		const appWindow = getCurrentWebviewWindow();
-		[unlistenConfig, unlistenDragDrop] = await Promise.all([
+		[unlistenConfig, unlistenDragDrop, unlistenQuickSwitcher, unlistenDeleteNote] = await Promise.all([
 			listen("open-config", () => {
 				openSettings();
 			}),
@@ -196,6 +198,19 @@
 				if (event.payload.type === "drop") {
 					void handleImageDrop(event.payload.paths, event.payload.position);
 				}
+			}),
+			listen("open-quick-switcher", () => {
+				showSearch = false;
+				showBacklinksPopover = false;
+				if (!showSwitcher) {
+					listFiles().then((files) => {
+						fileEntries = buildFileEntries(files);
+					});
+				}
+				showSwitcher = !showSwitcher;
+			}),
+			listen("delete-note", () => {
+				void deleteCurrentNote();
 			}),
 		]);
 
@@ -212,6 +227,8 @@
 	onDestroy(() => {
 		unlistenConfig?.();
 		unlistenDragDrop?.();
+		unlistenQuickSwitcher?.();
+		unlistenDeleteNote?.();
 	});
 
 	function handleGlobalKeydown(e: KeyboardEvent) {

@@ -33,6 +33,7 @@ pithy/
 │   │   ├── QuickSwitcher.svelte  # Cmd+K modal — file nav, fuzzy search, create-on-enter, delete
 │   │   ├── SearchPanel.svelte    # Cmd+Shift+F modal — full-text search via Tantivy
 │   │   ├── InfoBar.svelte        # Status bar — word count + clickable backlinks count
+│   │   ├── SettingsView.svelte   # Settings screen — macOS-style grouped sections, live apply
 │   │   ├── editor/
 │   │   │   ├── MarkdownEditor.svelte  # CodeMirror 6 wrapper + inline title, formatting shortcuts, find/replace
 │   │   │   └── inlineRendering.ts     # Live preview — hides markdown syntax, renders styled output
@@ -108,9 +109,11 @@ All paths are relative to vault root. `resolve_path()` rejects `..`, absolute pa
 - `list_tags() -> Vec<String>` — returns all indexed `#tag` values.
 
 ### Current Tauri Commands (config.rs)
-- `get_config_info() -> ConfigInfo` — returns resolved config snapshot (paths, editor settings, warnings). Called once on startup.
-- `read_config_file() -> String` — returns raw TOML contents for in-app editing.
-- `write_config_file(contents)` — atomic write of edited config TOML back to disk.
+- `get_config_info() -> ConfigInfo` — returns resolved config snapshot (paths, editor settings, warnings). Called on startup.
+- `update_config(updates: ConfigUpdates) -> ConfigInfo` — applies partial config updates via `toml_edit` (preserves comments), atomic writes TOML, re-resolves config in `AppState`, returns fresh `ConfigInfo`.
+- `list_themes() -> Vec<String>` — scans `~/.config/pithy/themes/` for `.css` files, returns names plus built-in `default-light` and `default-dark`, sorted.
+- `read_config_file() -> String` — returns raw TOML contents (for external tooling).
+- `write_config_file(contents)` — atomic write of config TOML back to disk.
 
 ## Core Design Decisions
 
@@ -138,7 +141,7 @@ Both layers walk the Lezer markdown syntax tree via `syntaxTree(state).iterate()
 **Key implementation details:**
 - **Container/composable nodes** (headings, bold, italic, links, blockquotes) must `return` (not `return false`) from the tree iterator so nested formatting renders correctly (e.g., bold inside headings, italic inside blockquotes).
 - **Leaf nodes** (inline code, fenced code, horizontal rules) use `return false` to prevent descending into children.
-- **Custom highlight style:** The extension bundles its own `HighlightStyle` (a copy of `defaultHighlightStyle` with `textDecoration: underline` removed from `heading` and `link` tags). In markdown mode this replaces `defaultHighlightStyle`; TOML config mode still uses the original.
+- **Custom highlight style:** The extension bundles its own `HighlightStyle` (a copy of `defaultHighlightStyle` with `textDecoration: underline` removed from `heading` and `link` tags).
 - **IME composition:** Decoration building is skipped entirely when `view.composing` is true.
 - **Cursor boundary:** `selectionIntersects()` uses inclusive checks for empty selections so cursor at a delimiter edge counts as "inside".
 
@@ -192,11 +195,10 @@ Both layers walk the Lezer markdown syntax tree via `syntaxTree(state).iterate()
 - Ignore dotfiles and sync artifacts (`.git/`, `.DS_Store`, `*.icloud`, `*.conflict`).
 - Sync is the user's responsibility (iCloud, Dropbox, Git).
 
-### Config Over GUI
-- All settings in a TOML config file (`~/.config/pithy/config.toml`). No settings panel.
-- Cmd+, opens the config file in the app itself (reuses `MarkdownEditor` in "config" mode with a dedicated `configAutosave` instance).
-- Config is self-documenting with comments. TOML keys use kebab-case (e.g., `font-size`, `font-family`).
-- Config changes require app restart (MVP). The config bar shows a notice.
+### Settings UI
+- Cmd+, opens a **Settings screen** (`SettingsView.svelte`) — macOS-style grouped sections with rounded cards.
+- Settings changes **apply live** (no restart needed). Each control change calls `updateConfig()`, which writes TOML via `toml_edit` (preserves comments), re-resolves config, and returns fresh `ConfigInfo`. The frontend applies CSS vars and theme CSS immediately.
+- The TOML config file (`~/.config/pithy/config.toml`) remains the single source of truth. Power users can edit it directly outside the app.
 - On first launch, `load_or_create()` writes a commented default template.
 - If config TOML is malformed, app falls back to defaults and shows a warning banner.
 
@@ -205,10 +207,10 @@ Both layers walk the Lezer markdown syntax tree via `syntaxTree(state).iterate()
 - **`Config`** (`config.rs`): serde struct matching the TOML shape. Has `vault: VaultConfig` and `editor: EditorConfig`. All fields have `#[serde(default)]` so partial configs work.
 - **`EditorConfig`**: uses `#[serde(rename_all = "kebab-case")]` for TOML keys. Embedded directly in `ResolvedConfig` (no field flattening).
 - **`EditorConfigInfo`**: separate struct with `#[serde(rename_all = "camelCase")]` for JSON serialization to the frontend. Maps from `EditorConfig` in `get_config_info`.
-- **`AppState`**: holds `Arc<ResolvedConfig>` + optional warning string. Managed as Tauri state.
-- **Frontend**: `getConfigInfo()` is called once in `onMount`. Editor settings are applied as CSS custom properties (`--editor-font-size`, `--editor-font-family`, `--editor-line-height`) on `document.documentElement`. CodeMirror theme reads these vars.
+- **`AppState`**: holds `Arc<RwLock<ResolvedConfig>>` + `RwLock<Option<String>>` warning. `update_config` acquires a write lock to swap in new resolved config after TOML changes.
+- **Frontend**: `getConfigInfo()` is called on startup; `applyConfig()` sets CSS custom properties and injects theme CSS. `updateConfig()` returns fresh `ConfigInfo` for live apply without a second IPC call. CodeMirror reads CSS vars.
 - **Theme/StatusBar structs** follow the same pattern: `ThemeConfig` → `ThemeConfigInfo`, `StatusBarConfig` → `StatusBarConfigInfo`. All config info structs use `camelCase` JSON serialization for the frontend.
-- **Adding a new setting** requires 3 touch-points: `EditorConfig` + `EditorConfigInfo` (Rust), TS `EditorConfigInfo` interface, CSS var injection line. See `docs/adding-config-settings.md`.
+- **Adding a new setting** requires 5 touch-points: `EditorConfig` + `EditorConfigInfo` + `ConfigUpdates` (Rust), TS interfaces, CSS var in `applyConfig()`, control in `SettingsView.svelte`. See `docs/adding-config-settings.md`.
 
 ### Theme System
 - Themes are CSS files defining `:root {}` blocks with CSS custom properties.
@@ -262,7 +264,7 @@ Both layers walk the Lezer markdown syntax tree via `syntaxTree(state).iterate()
 | Full-text search | Cmd+Shift+F |
 | Find/replace (in document) | Cmd+F |
 | Daily note | Cmd+D |
-| Open config | Cmd+, |
+| Open Settings | Cmd+, |
 | Delete current note | Cmd+Backspace |
 | Immediate save (flush) | Cmd+S |
 | Bold | Cmd+B |

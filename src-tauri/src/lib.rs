@@ -39,6 +39,21 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
 
+            let new_note = MenuItemBuilder::new("New Note")
+                .id("new-note")
+                .accelerator("CmdOrCtrl+K")
+                .build(app)?;
+
+            let delete_note = MenuItemBuilder::new("Delete Note")
+                .id("delete-note")
+                .accelerator("CmdOrCtrl+Backspace")
+                .build(app)?;
+
+            let fullscreen = MenuItemBuilder::new("Enter Full Screen")
+                .id("fullscreen")
+                .accelerator("Ctrl+CmdOrCtrl+F")
+                .build(app)?;
+
             let app_submenu = SubmenuBuilder::new(app, "Pithy")
                 .about(Some(AboutMetadata::default()))
                 .separator()
@@ -53,6 +68,13 @@ pub fn run() {
                 .quit()
                 .build()?;
 
+            let file_submenu = SubmenuBuilder::new(app, "File")
+                .item(&new_note)
+                .item(&delete_note)
+                .separator()
+                .close_window()
+                .build()?;
+
             let edit_submenu = SubmenuBuilder::new(app, "Edit")
                 .undo()
                 .redo()
@@ -63,8 +85,26 @@ pub fn run() {
                 .select_all()
                 .build()?;
 
+            let view_submenu = SubmenuBuilder::new(app, "View")
+                .item(&fullscreen)
+                .build()?;
+
+            let window_submenu = SubmenuBuilder::new(app, "Window")
+                .minimize()
+                .build()?;
+
+            let help_submenu = SubmenuBuilder::new(app, "Help")
+                .build()?;
+
             let menu = tauri::menu::MenuBuilder::new(app)
-                .items(&[&app_submenu, &edit_submenu])
+                .items(&[
+                    &app_submenu,
+                    &file_submenu,
+                    &edit_submenu,
+                    &view_submenu,
+                    &window_submenu,
+                    &help_submenu,
+                ])
                 .build()?;
 
             app.set_menu(menu)?;
@@ -72,6 +112,16 @@ pub fn run() {
             app.on_menu_event(move |app_handle, event| {
                 if event.id() == settings.id() {
                     let _ = app_handle.emit("open-config", ());
+                } else if event.id() == new_note.id() {
+                    let _ = app_handle.emit("open-quick-switcher", ());
+                } else if event.id() == delete_note.id() {
+                    let _ = app_handle.emit("delete-note", ());
+                } else if event.id() == fullscreen.id() {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        if let Ok(is_fs) = window.is_fullscreen() {
+                            let _ = window.set_fullscreen(!is_fs);
+                        }
+                    }
                 }
             });
 

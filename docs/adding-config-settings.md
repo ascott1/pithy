@@ -1,6 +1,6 @@
 # Adding a New Config Setting
 
-This guide walks through adding a new editor setting end-to-end. The pipeline has **3 touch-points**.
+This guide walks through adding a new editor setting end-to-end. The pipeline has **5 touch-points**.
 
 ## Example: Adding `tab-size`
 
@@ -35,13 +35,30 @@ pub struct EditorConfigInfo {
 }
 ```
 
-**c) Map the field in `get_config_info`:**
+**c) Map the field in `build_config_info`:**
 
 ```rust
 editor: EditorConfigInfo {
     // ... existing fields ...
-    tab_size: state.config.editor.tab_size,
+    tab_size: cfg.editor.tab_size,
 },
+```
+
+**f) Add the field to `ConfigUpdates` and handle it in `update_config`:**
+
+```rust
+pub struct ConfigUpdates {
+    // ... existing fields ...
+    pub editor_tab_size: Option<u32>,
+}
+```
+
+In `update_config`, add:
+```rust
+if let Some(v) = updates.editor_tab_size {
+    ensure_table(&mut doc, "editor");
+    doc["editor"]["tab-size"] = toml_edit::value(v as i64);
+}
 ```
 
 **d) (Optional) Add validation in `load_or_create_at`:**
@@ -67,7 +84,7 @@ Note: TOML keys use **kebab-case** (e.g., `tab-size`, not `tab_size`).
 
 ### 2. TypeScript — `src/lib/tauri/config.ts`
 
-Add the field to `EditorConfigInfo`:
+**a) Add the field to `EditorConfigInfo`:**
 
 ```ts
 export interface EditorConfigInfo {
@@ -76,12 +93,21 @@ export interface EditorConfigInfo {
 }
 ```
 
-### 3. Frontend — `src/routes/+page.svelte`
-
-Apply the value as a CSS custom property in `onMount`:
+**b) Add the field to `ConfigUpdates`:**
 
 ```ts
-document.documentElement.style.setProperty("--editor-tab-size", `${info.editor.tabSize}`);
+export interface ConfigUpdates {
+    // ... existing fields ...
+    editorTabSize?: number;
+}
+```
+
+### 3. Frontend — `src/routes/+page.svelte`
+
+Apply the value as a CSS custom property in `applyConfig()`:
+
+```ts
+document.documentElement.style.setProperty("--editor-tab-size", `${config.editor.tabSize}`);
 ```
 
 Add a default in the `:global(:root)` CSS block:
@@ -92,7 +118,11 @@ Add a default in the `:global(:root)` CSS block:
 
 Then use `var(--editor-tab-size)` in `MarkdownEditor.svelte`'s CodeMirror theme or wherever the setting applies.
 
-### 4. Docs — `docs/configuration.md`
+### 4. Settings UI — `src/lib/SettingsView.svelte`
+
+Add a control (stepper, text input, toggle, etc.) in the appropriate section. Wire it to call `applyImmediate` or `applyDebounced` with the matching `ConfigUpdates` key.
+
+### 5. Docs — `docs/configuration.md`
 
 Add the new setting to the `[editor]` section and the full example.
 
@@ -101,11 +131,14 @@ Add the new setting to the `[editor]` section and the full example.
 - [ ] Default function + field on `EditorConfig` (with `#[serde(default)]`)
 - [ ] `Default` impl updated
 - [ ] Field on `EditorConfigInfo`
-- [ ] Mapped in `get_config_info`
+- [ ] Mapped in `build_config_info`
+- [ ] Field on `ConfigUpdates` + handled in `update_config`
 - [ ] Validation/clamping in `load_or_create_at` (if applicable)
 - [ ] Added (commented out) to `DEFAULT_TEMPLATE`
 - [ ] TS `EditorConfigInfo` interface updated
-- [ ] CSS custom property set in `onMount` + default in `:global(:root)`
+- [ ] TS `ConfigUpdates` interface updated
+- [ ] CSS custom property set in `applyConfig()` + default in `:global(:root)`
+- [ ] Control added to `SettingsView.svelte`
 - [ ] Used in component (e.g., CM theme)
 - [ ] `docs/configuration.md` updated
 - [ ] `cargo test` passes
@@ -117,4 +150,4 @@ Add the new setting to the `[editor]` section and the full example.
 - **`EditorConfigInfo`** uses `#[serde(rename_all = "camelCase")]` — Rust field names are `snake_case`, JSON keys are `camelCase`. This is automatic.
 - **`EditorConfig` is embedded directly in `ResolvedConfig`** — no need to flatten individual fields. New fields flow through automatically.
 - **CSS custom properties** are the bridge between config values and CodeMirror. Define on `:global(:root)` so they penetrate CM's scoped styles.
-- **All settings require restart** (MVP). No live-reload mechanism yet.
+- **Settings apply live** via `updateConfig()` → `applyConfig()`. No restart needed.
